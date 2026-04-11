@@ -1,6 +1,6 @@
-"""Execution, broker, and order state components."""
+"""Order state machine utilities."""
 
-from .state_machine import (
+from .order_state_machine import (
     InvalidOrderTransitionError,
     MissingTransitionContextError,
     OrderStateMachine,
