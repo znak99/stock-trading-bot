@@ -1,0 +1,26 @@
+name: breakout_swing_v1
+style: swing
+
+entry:
+  monitoring_phase: INTRADAY_MONITOR
+  confirmation_phase: MARKET_CLOSE_PROCESS
+  execution_phase: NEXT_OPEN_EXECUTION
+  breakout_lookback_days: 20
+  close_must_hold_recent_high: true
+  volume_ratio_min: 1.5
+  volume_ratio_target: 2.0
+  close_strength_min: 0.8
+  use_final_snapshot_only: true
+
+execution:
+  order_type: market
+  time_in_force: day
+  target_execution_timing: next_open
+  gap_filter_enabled: false
+
+exit:
+  stop_loss_rate: -0.025
+  first_take_profit_rate: 0.035
+  first_take_profit_fraction: 0.5
+  remainder_exit_rule: close_below_5day_moving_average
+

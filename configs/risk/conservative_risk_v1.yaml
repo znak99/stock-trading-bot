@@ -1,0 +1,14 @@
+name: conservative_risk_v1
+allocation_policy: equal_weight
+
+risk_checks:
+  max_active_positions: 5
+  max_position_ratio: 0.20
+  max_single_order_ratio: 0.20
+  block_duplicate_long_entry: true
+  min_available_cash_after_order: 0
+
+reservation:
+  use_reserved_cash: true
+  use_reserved_sell_quantity: true
+

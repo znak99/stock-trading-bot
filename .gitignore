@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environment files
+.env
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Runtime outputs
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/logs/*
+data/results/*
+!data/logs/.gitkeep
+!data/results/.gitkeep

@@ -1,0 +1,12 @@
+name: conservative
+
+buy_commission_rate: 0.00025
+sell_commission_rate: 0.00025
+sell_tax_rate: 0.0020
+buy_slippage_rate: 0.0030
+sell_slippage_rate: 0.0015
+
+pricing:
+  apply_buy_slippage_to_fill_price: true
+  apply_sell_slippage_to_fill_price: true
+

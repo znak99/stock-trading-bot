@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stock-trading-bot"
+version = "0.1.0"
+description = "국내 주식 자동매매 및 종목 추천 시스템"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = { text = "Proprietary" }
+authors = [
+  { name = "Seungwoo" },
+]
+dependencies = [
+  "pydantic>=2.11.0,<3.0.0",
+  "PyYAML>=6.0.2,<7.0.0",
+  "python-dotenv>=1.0.1,<2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.15.0,<2.0.0",
+  "pytest>=8.3.0,<9.0.0",
+  "pytest-cov>=5.0.0,<6.0.0",
+  "ruff>=0.11.0,<0.12.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/stock_trading_bot"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["B", "C4", "E", "F", "I", "N", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+packages = ["stock_trading_bot"]
+warn_unused_configs = true
+no_implicit_optional = true
+strict_equality = true
+

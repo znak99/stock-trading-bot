@@ -1,0 +1,35 @@
+project:
+  name: stock_trading_bot
+  description: 국내 주식 자동매매 및 종목 추천 시스템
+  timezone: Asia/Seoul
+
+runtime:
+  mode: backtest
+  session_phases:
+    - PRE_MARKET
+    - INTRADAY_MONITOR
+    - MARKET_CLOSE_PROCESS
+    - NEXT_OPEN_EXECUTION
+
+profiles:
+  mode: backtest
+  strategy: breakout_swing_v1
+  risk: conservative_risk_v1
+  costs: conservative
+  market: kr_stock
+
+paths:
+  data_root: data
+  raw_data_dir: data/raw
+  processed_data_dir: data/processed
+  result_dir: data/results
+  log_dir: data/logs
+
+logging:
+  level: INFO
+  record_order_requests: true
+  record_order_state_changes: true
+  record_fill_events: true
+  record_position_changes: true
+  record_pnl: true
+
