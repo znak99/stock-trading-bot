@@ -359,3 +359,115 @@ def test_cancelled_buy_releases_remaining_reserved_cash_and_keeps_filled_positio
     assert position.position_status == "open"
     assert account_state.reserved_cash == Decimal("0")
     assert account_state.available_cash == account_state.cash_balance
+
+
+def test_broker_rejected_buy_releases_reserved_cash_without_creating_position() -> None:
+    account_store = AccountStateStore(_build_account_state())
+    position_book = PositionBook()
+    updater = PortfolioUpdater(position_book=position_book, account_state_store=account_store)
+    order_request = _build_buy_order()
+
+    updater.reserve_for_buy(order_request)
+    updater.apply_order_event(
+        order_request,
+        OrderEvent(
+            order_event_id="event-301",
+            order_request_id=order_request.order_request_id,
+            timestamp=datetime(2026, 4, 12, 9, 7, tzinfo=UTC),
+            event_type=OrderEventType.BROKER_REJECTED.value,
+            broker_order_id="broker-301",
+            filled_quantity=Decimal("0"),
+            filled_price_avg=Decimal("0"),
+            remaining_quantity=Decimal("10"),
+            event_message="broker rejected",
+            is_terminal=True,
+        ),
+    )
+
+    account_state = account_store.get_state()
+
+    assert position_book.get("instr-001") is None
+    assert account_state.cash_balance == Decimal("1000000")
+    assert account_state.reserved_cash == Decimal("0")
+    assert account_state.available_cash == Decimal("1000000")
+
+
+def test_expired_sell_releases_reserved_quantity_and_keeps_position() -> None:
+    account_store = AccountStateStore(_build_account_state())
+    position_book = PositionBook((_build_open_position(),))
+    updater = PortfolioUpdater(position_book=position_book, account_state_store=account_store)
+    order_request = _build_sell_order(quantity="6")
+
+    updater.reserve_for_sell(order_request)
+    updater.apply_order_event(
+        order_request,
+        OrderEvent(
+            order_event_id="event-302",
+            order_request_id=order_request.order_request_id,
+            timestamp=datetime(2026, 4, 13, 9, 5, tzinfo=UTC),
+            event_type=OrderEventType.EXPIRED.value,
+            broker_order_id="broker-302",
+            filled_quantity=Decimal("0"),
+            filled_price_avg=Decimal("0"),
+            remaining_quantity=Decimal("6"),
+            event_message="sell order expired",
+            is_terminal=True,
+        ),
+    )
+
+    position = position_book.get("instr-001")
+    account_state = account_store.get_state()
+
+    assert position is not None
+    assert position.quantity == Decimal("10")
+    assert position.position_status == "open"
+    assert account_state.reserved_sell_quantity == {}
+    assert account_state.cash_balance == Decimal("1000000")
+
+
+def test_late_fill_after_cancel_request_updates_book_and_releases_remaining_buy_reservation() -> None:
+    account_store = AccountStateStore(_build_account_state())
+    position_book = PositionBook()
+    updater = PortfolioUpdater(position_book=position_book, account_state_store=account_store)
+    order_request = _build_buy_order()
+
+    updater.reserve_for_buy(order_request)
+    updater.apply_order_event(
+        order_request,
+        OrderEvent(
+            order_event_id="event-303",
+            order_request_id=order_request.order_request_id,
+            timestamp=datetime(2026, 4, 12, 9, 9, tzinfo=UTC),
+            event_type=OrderEventType.LATE_FILL_AFTER_CANCEL_REQUEST.value,
+            broker_order_id="broker-303",
+            filled_quantity=Decimal("4"),
+            filled_price_avg=Decimal("100"),
+            remaining_quantity=Decimal("6"),
+            event_message="late fill after cancel request",
+            is_terminal=False,
+        ),
+    )
+    updater.apply_order_event(
+        order_request,
+        OrderEvent(
+            order_event_id="event-304",
+            order_request_id=order_request.order_request_id,
+            timestamp=datetime(2026, 4, 12, 9, 10, tzinfo=UTC),
+            event_type=OrderEventType.CANCEL_CONFIRMED.value,
+            broker_order_id="broker-303",
+            filled_quantity=Decimal("4"),
+            filled_price_avg=Decimal("100"),
+            remaining_quantity=Decimal("6"),
+            event_message="cancel confirmed after late fill",
+            is_terminal=True,
+        ),
+    )
+
+    position = position_book.get("instr-001")
+    account_state = account_store.get_state()
+
+    assert position is not None
+    assert position.quantity == Decimal("4")
+    assert position.position_status == "open"
+    assert account_state.reserved_cash == Decimal("0")
+    assert account_state.available_cash == account_state.cash_balance
