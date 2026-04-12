@@ -1,0 +1,16 @@
+name: breakout_swing_entry_sensitivity
+description: 돌파형 스윙 전략의 진입 강도 민감도 비교
+include_baseline: true
+
+comparison:
+  sort_by: total_pnl
+  metrics:
+    - total_pnl
+    - return_rate
+    - order_request_count
+    - fill_event_count
+
+parameters:
+  - path: strategy.entry.close_strength_min
+    values:
+      - 0.995

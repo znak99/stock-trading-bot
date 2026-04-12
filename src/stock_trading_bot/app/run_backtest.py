@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from stock_trading_bot.adapters import HistoricalMarketDataFeed, SimulatedBroker
 from stock_trading_bot.core.models import Instrument
 from stock_trading_bot.execution import FillProcessor, OrderManager
+from stock_trading_bot.infrastructure.config import ConfigManager
 from stock_trading_bot.infrastructure.logging import EventLogger
 from stock_trading_bot.infrastructure.persistence import TradeRepository
 from stock_trading_bot.portfolio import (
@@ -48,24 +47,21 @@ def build_backtest_runtime(
     data_directory: Path | None = None,
     result_directory: Path | None = None,
     log_directory: Path | None = None,
+    config_overrides: Mapping[str, Any] | None = None,
 ) -> ExecutionRuntime:
     """Build the backtest runtime from repository config files."""
 
     root = project_root or Path(__file__).resolve().parents[3]
-    base_config = _load_yaml(root / "configs" / "base.yaml")
-    mode_config = _load_yaml(root / "configs" / "modes" / "backtest.yaml")
+    config_manager = ConfigManager(project_root=root)
+    config_bundle = config_manager.load_backtest_config_bundle(overrides=config_overrides)
+    base_config = config_bundle.base
+    mode_config = config_bundle.mode
+    strategy_config = config_bundle.strategy
+    risk_config = config_bundle.risk
+    costs_config = config_bundle.costs
+    market_config = config_bundle.market
     start_date = date.fromisoformat(mode_config["backtest"]["start_date"])
     end_date = date.fromisoformat(mode_config["backtest"]["end_date"])
-    strategy_config = _load_yaml(
-        root / "configs" / "strategy" / f"{base_config['profiles']['strategy']}.yaml"
-    )
-    risk_config = _load_yaml(root / "configs" / "risk" / f"{base_config['profiles']['risk']}.yaml")
-    costs_config = _load_yaml(
-        root / "configs" / "costs" / f"{base_config['profiles']['costs']}.yaml"
-    )
-    market_config = _load_yaml(
-        root / "configs" / "market" / f"{base_config['profiles']['market']}.yaml"
-    )
     runtime_mode = str(mode_config.get("mode", base_config["runtime"]["mode"]))
     run_label = _build_run_label(runtime_mode, start_date, end_date)
 
@@ -237,6 +233,7 @@ def run_backtest(
     data_directory: Path | None = None,
     result_directory: Path | None = None,
     log_directory: Path | None = None,
+    config_overrides: Mapping[str, Any] | None = None,
 ):
     """Build the runtime and execute the configured backtest."""
 
@@ -245,6 +242,7 @@ def run_backtest(
         data_directory=data_directory,
         result_directory=result_directory,
         log_directory=log_directory,
+        config_overrides=config_overrides,
     )
     return runtime.run_session()
 
@@ -305,14 +303,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"active_positions={summary.active_position_count}")
     print(f"closed_positions={summary.closed_position_count}")
     return 0
-
-
-def _load_yaml(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle)
-    if not isinstance(data, dict):
-        raise ValueError(f"Expected a mapping in {path}.")
-    return data
 
 
 def _discover_instruments(

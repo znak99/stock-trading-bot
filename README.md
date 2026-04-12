@@ -91,6 +91,7 @@ docker run --rm stock-trading-bot pytest -q
 - `configs/risk/conservative_risk_v1.yaml`: 보수형 리스크 정책
 - `configs/costs/conservative.yaml`: 운영 기본 비용 프로파일
 - `configs/market/kr_stock.yaml`: 국내 주식 시장 규칙 기본값
+- `configs/experiments/*.yaml`: 파라미터 실험 정의 파일
 
 `configs/base.yaml`의 `universe` 섹션은 기본 필터 정책과 최소 거래대금/거래량 임계값을 관리합니다.
 
@@ -115,6 +116,19 @@ python -m stock_trading_bot.app.run_backtest --data-dir tests/fixtures/market
 - `buy_commission`, `sell_commission`, `sell_tax`, `slippage_estimate`
 - 주문 수, 체결 이벤트 수, 최종 포지션 수
 
+## 파라미터 실험
+
+설정 파일 기반 반복 실험도 지원합니다.
+
+```powershell
+python -m stock_trading_bot.app.run_parameter_experiments `
+  --experiment-config configs/experiments/breakout_swing_entry_sensitivity.yaml `
+  --data-dir tests/fixtures/market
+```
+
+실험 실행 후에는 각 run별 백테스트 결과와 로그가 별도 디렉토리에 저장되고,
+실험 루트에는 `comparison.json`, `comparison.csv`가 생성됩니다.
+
 ## 현재 상태
 
 현재 구현 범위는 다음까지 반영되어 있습니다.
@@ -132,5 +146,6 @@ python -m stock_trading_bot.app.run_backtest --data-dir tests/fixtures/market
 - Runtime 실행 엔진(SessionClock, Coordinators, ResultCollector)
 - 백테스트 애플리케이션 엔트리포인트(`python -m stock_trading_bot.app.run_backtest`)
 - End-to-End 백테스트 흐름(필터 -> 전략 -> 주문 -> 체결 -> 청산 -> 결과 요약 출력)
+- 설정 파일 기반 파라미터 실험 반복 실행 및 결과 비교
 
 아직 남아 있는 주요 구현 범위는 AI 스코어링 고도화와 모의투자/실거래 어댑터 계층입니다.

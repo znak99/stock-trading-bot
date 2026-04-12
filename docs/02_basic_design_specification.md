@@ -562,6 +562,7 @@ src/stock_trading_bot/
 ```text
 configs/
 ├─ base.yaml
+├─ experiments/
 ├─ modes/
 ├─ strategy/
 ├─ risk/
@@ -574,6 +575,7 @@ configs/
 - `modes/paper.yaml`
 - `modes/live.yaml`
 - `strategy/breakout_swing_v1.yaml`
+- `experiments/breakout_swing_entry_sensitivity.yaml`
 - `risk/conservative_risk_v1.yaml`
 - `costs/conservative.yaml`
 - `costs/balanced.yaml`
