@@ -160,6 +160,24 @@ class PortfolioUpdater:
         self._account_state_store.update_timestamp(order_event.timestamp)
         self._account_state_store.recalculate_summary(self._position_book)
 
+    def release_order_reservation(
+        self,
+        order_request_id: str,
+        *,
+        timestamp: datetime | None = None,
+    ) -> None:
+        """Release any remaining reservation for an order that will not be submitted."""
+
+        tracked_order = self._tracked_orders.get(order_request_id)
+        if tracked_order is None:
+            return
+
+        self._release_remaining_reservations(tracked_order)
+        self._account_state_store.update_timestamp(
+            timestamp or self._account_state_store.get_state().timestamp
+        )
+        self._account_state_store.recalculate_summary(self._position_book)
+
     def _apply_buy_fill(
         self,
         tracked_order: _TrackedOrder,

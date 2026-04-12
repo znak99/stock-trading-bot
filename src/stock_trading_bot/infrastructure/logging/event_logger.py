@@ -18,6 +18,7 @@ from stock_trading_bot.core.models import (
 )
 from stock_trading_bot.execution import ProcessedOrderEvent
 from stock_trading_bot.infrastructure._serialization import append_jsonl
+from stock_trading_bot.infrastructure.notifications import AlertNotification
 from stock_trading_bot.universe.policies import CandidateFilterLogEntry
 
 if TYPE_CHECKING:
@@ -181,6 +182,12 @@ class EventLogger:
                 "final_positions",
                 {"positions": tuple(final_positions)},
             )
+
+    def log_alerts(self, alerts: Sequence[AlertNotification]) -> None:
+        """Record operational safety alerts."""
+
+        for alert in alerts:
+            self._write_record("safety_alert", alert)
 
     def _write_record(self, record_type: str, payload: Any) -> None:
         self._sequence += 1

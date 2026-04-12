@@ -37,3 +37,9 @@ logging:
   record_fill_events: true
   record_position_changes: true
   record_pnl: true
+
+alerts:
+  enabled: true
+  transport: webhook
+  webhook_url_env: ALERT_WEBHOOK_URL
+  timeout_seconds: 5

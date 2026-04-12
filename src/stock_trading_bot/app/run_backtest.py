@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time
 from decimal import Decimal
@@ -15,6 +16,11 @@ from stock_trading_bot.core.models import Instrument
 from stock_trading_bot.execution import FillProcessor, OrderManager
 from stock_trading_bot.infrastructure.config import ConfigManager
 from stock_trading_bot.infrastructure.logging import EventLogger
+from stock_trading_bot.infrastructure.notifications import (
+    AlertDispatcher,
+    NoOpAlertNotifier,
+    WebhookAlertNotifier,
+)
 from stock_trading_bot.infrastructure.persistence import TradeRepository
 from stock_trading_bot.portfolio import (
     AccountStateStore,
@@ -26,8 +32,11 @@ from stock_trading_bot.portfolio import (
 )
 from stock_trading_bot.portfolio.services.portfolio_updater import build_initial_account_state
 from stock_trading_bot.runtime import (
+    AbnormalStateChecks,
     ExecutionCoordinator,
     ExecutionRuntime,
+    OperationalSafetyConfig,
+    OperationalSafetyGuard,
     PortfolioCoordinator,
     ResultCollector,
     SessionClock,
@@ -152,6 +161,9 @@ def build_backtest_runtime(
         default_partial_sell_fraction=_to_decimal(
             strategy_config["exit"]["first_take_profit_fraction"]
         ),
+        block_duplicate_active_orders=bool(
+            risk_config["operational_safety"]["block_duplicate_active_orders"]
+        ),
     )
 
     signal_factory = SignalFactory(strategy_name=strategy_config["name"])
@@ -242,6 +254,54 @@ def build_backtest_runtime(
         record_position_changes=bool(base_config["logging"]["record_position_changes"]),
         record_pnl=bool(base_config["logging"]["record_pnl"]),
     )
+    alert_dispatcher = _build_alert_dispatcher(base_config["alerts"])
+    abnormal_state_checks = AbnormalStateChecks(
+        detect_negative_cash_balance=bool(
+            risk_config["operational_safety"]["abnormal_state_checks"][
+                "detect_negative_cash_balance"
+            ]
+        ),
+        detect_available_cash_inconsistency=bool(
+            risk_config["operational_safety"]["abnormal_state_checks"][
+                "detect_available_cash_inconsistency"
+            ]
+        ),
+        detect_reserved_cash_exceeds_cash_balance=bool(
+            risk_config["operational_safety"]["abnormal_state_checks"][
+                "detect_reserved_cash_exceeds_cash_balance"
+            ]
+        ),
+        detect_negative_position_quantity=bool(
+            risk_config["operational_safety"]["abnormal_state_checks"][
+                "detect_negative_position_quantity"
+            ]
+        ),
+        detect_active_position_limit_breach=bool(
+            risk_config["operational_safety"]["abnormal_state_checks"][
+                "detect_active_position_limit_breach"
+            ]
+        ),
+    )
+    operational_safety_guard = OperationalSafetyGuard(
+        config=OperationalSafetyConfig(
+            enabled=bool(risk_config["operational_safety"]["enabled"]),
+            daily_loss_limit_rate=_to_decimal(
+                risk_config["operational_safety"]["daily_loss_limit_rate"]
+            ),
+            block_duplicate_active_orders=bool(
+                risk_config["operational_safety"]["block_duplicate_active_orders"]
+            ),
+            halt_on_abnormal_state=bool(
+                risk_config["operational_safety"]["halt_on_abnormal_state"]
+            ),
+            allow_exit_orders_during_daily_loss_block=bool(
+                risk_config["operational_safety"][
+                    "allow_exit_orders_during_daily_loss_block"
+                ]
+            ),
+            abnormal_state_checks=abnormal_state_checks,
+        )
+    )
     trade_repository = (
         TradeRepository(result_directory=resolved_result_directory)
         if bool(mode_config["backtest"]["persist_results"])
@@ -254,6 +314,8 @@ def build_backtest_runtime(
         portfolio_coordinator=portfolio_coordinator,
         result_collector=result_collector,
         event_logger=event_logger,
+        operational_safety_guard=operational_safety_guard,
+        alert_dispatcher=alert_dispatcher,
     )
     session_clock = SessionClock(
         start_date=start_date,
@@ -270,6 +332,8 @@ def build_backtest_runtime(
         result_collector=result_collector,
         event_logger=event_logger,
         trade_repository=trade_repository,
+        operational_safety_guard=operational_safety_guard,
+        alert_dispatcher=alert_dispatcher,
     )
 
 
@@ -380,6 +444,26 @@ def _discover_instruments(
 
 def _to_decimal(value: Any) -> Decimal:
     return Decimal(str(value))
+
+
+def _build_alert_dispatcher(alert_config: Mapping[str, Any]) -> AlertDispatcher:
+    if not bool(alert_config["enabled"]):
+        return AlertDispatcher(notifiers=(NoOpAlertNotifier(),))
+
+    transport = str(alert_config["transport"])
+    if transport == "webhook":
+        webhook_url = os.environ.get(str(alert_config["webhook_url_env"]), "")
+        if webhook_url:
+            return AlertDispatcher(
+                notifiers=(
+                    WebhookAlertNotifier(
+                        webhook_url=webhook_url,
+                        timeout_seconds=int(alert_config["timeout_seconds"]),
+                    ),
+                )
+            )
+
+    return AlertDispatcher(notifiers=(NoOpAlertNotifier(),))
 
 
 def _build_run_label(runtime_mode: str, start_date: date, end_date: date) -> str:

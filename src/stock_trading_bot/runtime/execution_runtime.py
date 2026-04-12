@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from stock_trading_bot.infrastructure.logging import EventLogger
+from stock_trading_bot.infrastructure.notifications import AlertDispatcher, AlertNotification
 from stock_trading_bot.infrastructure.persistence import TradeRepository
 from stock_trading_bot.runtime.execution_coordinator import ExecutionCoordinator
+from stock_trading_bot.runtime.operational_safety import OperationalSafetyGuard
 from stock_trading_bot.runtime.portfolio_coordinator import PortfolioCoordinator
 from stock_trading_bot.runtime.result_collector import ResultCollector, RuntimeResult
 from stock_trading_bot.runtime.session_clock import SessionClock
@@ -25,6 +27,8 @@ class ExecutionRuntime:
     result_collector: ResultCollector
     event_logger: EventLogger | None = None
     trade_repository: TradeRepository | None = None
+    operational_safety_guard: OperationalSafetyGuard | None = None
+    alert_dispatcher: AlertDispatcher | None = None
     _bootstrapped: bool = field(default=False, init=False)
 
     def bootstrap(self) -> None:
@@ -68,8 +72,12 @@ class ExecutionRuntime:
     def run_pre_market(self, trading_date: date) -> None:
         """Prepare account timing and reserved-order visibility for the trading day."""
 
-        del trading_date
-        # v1 keeps the pre-market step light: state and reservations are loaded in memory.
+        if self.operational_safety_guard is not None:
+            self.operational_safety_guard.start_trading_day(
+                trading_date,
+                self.portfolio_coordinator.current_account_state(),
+            )
+        self._evaluate_operational_safety(trading_date, reason="pre_market")
 
     def run_intraday_monitor(self, trading_date: date) -> None:
         """Run intraday candidate scanning and optional exit monitoring."""
@@ -81,6 +89,7 @@ class ExecutionRuntime:
         )
         if intraday_snapshots:
             self.portfolio_coordinator.mark_to_market(intraday_snapshots)
+            self._evaluate_operational_safety(trading_date, reason="intraday_mark_to_market")
 
         intraday_candidates = self.strategy_coordinator.scan_intraday_candidates(trading_date)
         self._record_candidates(intraday_candidates)
@@ -103,6 +112,7 @@ class ExecutionRuntime:
         )
         if close_snapshots:
             self.portfolio_coordinator.mark_to_market(close_snapshots)
+            self._evaluate_operational_safety(trading_date, reason="close_mark_to_market")
 
         close_candidates = self.strategy_coordinator.select_close_candidates(trading_date)
         self._record_candidates(close_candidates)
@@ -121,6 +131,11 @@ class ExecutionRuntime:
             is_final=True,
         )
         self._record_signals(close_exit_signals)
+        close_entry_signals = self._filter_duplicate_signals(close_entry_signals)
+        close_entry_signals, close_exit_signals = self._apply_order_block_policy(
+            close_entry_signals=close_entry_signals,
+            close_exit_signals=close_exit_signals,
+        )
 
         ranked_candidates = tuple(
             candidate
@@ -162,6 +177,12 @@ class ExecutionRuntime:
         """Submit next-open orders for the trading date and process all fills/events."""
 
         scheduled_orders = self.portfolio_coordinator.pop_scheduled_orders(trading_date)
+        if not scheduled_orders:
+            return
+        scheduled_orders = self._filter_blocked_order_requests(
+            trading_date,
+            scheduled_orders,
+        )
         if not scheduled_orders:
             return
 
@@ -226,3 +247,82 @@ class ExecutionRuntime:
         self.result_collector.record_order_requests(order_requests)
         if self.event_logger is not None:
             self.event_logger.log_order_requests(order_requests)
+
+    def _evaluate_operational_safety(self, trading_date: date, *, reason: str) -> None:
+        if self.operational_safety_guard is None:
+            return
+        alerts = self.operational_safety_guard.evaluate_portfolio(
+            trading_date=trading_date,
+            reason=reason,
+            account_state=self.portfolio_coordinator.current_account_state(),
+            positions=self.portfolio_coordinator.current_positions(),
+        )
+        self._emit_alerts(alerts)
+
+    def _emit_alerts(self, alerts: tuple[AlertNotification, ...]) -> None:
+        if not alerts:
+            return
+        if self.event_logger is not None:
+            self.event_logger.log_alerts(alerts)
+        if self.alert_dispatcher is not None:
+            self.alert_dispatcher.dispatch_all(alerts)
+
+    def _filter_duplicate_signals(self, signals: tuple) -> tuple:
+        if self.operational_safety_guard is None:
+            return signals
+
+        filtered_signals = []
+        for signal in signals:
+            side = "buy" if signal.signal_type == "buy" else "sell"
+            is_allowed, alerts = self.operational_safety_guard.evaluate_duplicate_order(
+                instrument_id=signal.instrument_id,
+                side=side,
+                timestamp=signal.timestamp,
+                active_order_exists=self.portfolio_coordinator.has_active_order(
+                    signal.instrument_id,
+                    side,
+                ),
+            )
+            self._emit_alerts(alerts)
+            if is_allowed:
+                filtered_signals.append(signal)
+        return tuple(filtered_signals)
+
+    def _apply_order_block_policy(
+        self,
+        *,
+        close_entry_signals: tuple,
+        close_exit_signals: tuple,
+    ) -> tuple[tuple, tuple]:
+        if self.operational_safety_guard is None:
+            return close_entry_signals, close_exit_signals
+        if self.operational_safety_guard.all_orders_halted:
+            return (), ()
+        if self.operational_safety_guard.entry_orders_blocked:
+            return (), close_exit_signals
+        return close_entry_signals, close_exit_signals
+
+    def _filter_blocked_order_requests(
+        self,
+        trading_date: date,
+        order_requests: tuple,
+    ) -> tuple:
+        if self.operational_safety_guard is None:
+            return order_requests
+
+        allowed_order_requests = []
+        timestamp = self.portfolio_coordinator.current_account_state().timestamp
+        for order_request in order_requests:
+            if self.operational_safety_guard.should_allow_order(order_request):
+                allowed_order_requests.append(order_request)
+                continue
+            self.portfolio_coordinator.release_order_request(
+                order_request.order_request_id,
+                timestamp=timestamp,
+            )
+
+        self._evaluate_operational_safety(
+            trading_date,
+            reason="next_open_pre_submission_filter",
+        )
+        return tuple(allowed_order_requests)

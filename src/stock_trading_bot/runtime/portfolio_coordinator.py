@@ -43,6 +43,7 @@ class PortfolioCoordinator:
     time_in_force: str = "day"
     lot_size: Decimal = Decimal("1")
     default_partial_sell_fraction: Decimal = Decimal("0.5")
+    block_duplicate_active_orders: bool = True
     _scheduled_order_ids_by_date: dict[date, list[str]] = field(default_factory=dict, init=False)
     _order_requests_by_id: dict[str, OrderRequest] = field(default_factory=dict, init=False)
     _signals_by_id: dict[str, Signal] = field(default_factory=dict, init=False)
@@ -51,6 +52,11 @@ class PortfolioCoordinator:
         init=False,
     )
     _partial_take_profit_instrument_ids: set[str] = field(default_factory=set, init=False)
+    _active_order_request_ids: set[str] = field(default_factory=set, init=False)
+    _active_order_request_ids_by_key: dict[tuple[str, str], set[str]] = field(
+        default_factory=dict,
+        init=False,
+    )
 
     def build_order_request(
         self,
@@ -63,6 +69,8 @@ class PortfolioCoordinator:
         """Build a risk-checked order request from a strategy signal."""
 
         side = "buy" if signal.signal_type == "buy" else "sell"
+        if self.block_duplicate_active_orders and self.has_active_order(signal.instrument_id, side):
+            return None
         requested_quantity = self._resolve_requested_quantity(signal, snapshot)
         if requested_quantity <= Decimal("0"):
             return None
@@ -173,6 +181,7 @@ class PortfolioCoordinator:
             self._scheduled_order_ids_by_date.setdefault(execution_date, []).append(
                 order_request.order_request_id
             )
+            self._activate_order_request(order_request)
             scheduled_order_requests.append(order_request)
 
         return tuple(scheduled_order_requests)
@@ -237,6 +246,30 @@ class PortfolioCoordinator:
             and order_event.filled_quantity > Decimal("0")
         ):
             self._partial_take_profit_instrument_ids.add(order_request.instrument_id)
+
+        if order_event.is_terminal:
+            self._deactivate_order_request(order_request)
+
+    def has_active_order(self, instrument_id: str, side: str) -> bool:
+        """Return whether an active order already exists for the instrument/side key."""
+
+        return bool(self._active_order_request_ids_by_key.get((instrument_id, side)))
+
+    def release_order_request(
+        self,
+        order_request_id: str,
+        *,
+        timestamp: datetime | None = None,
+    ) -> None:
+        """Release reservations for an order request that must be blocked before submission."""
+
+        order_request = self.get_order_request(order_request_id)
+        self.portfolio_updater.release_order_reservation(
+            order_request_id,
+            timestamp=timestamp,
+        )
+        self._deactivate_order_request(order_request)
+        self._remove_from_schedule(order_request_id)
 
     def has_partial_take_profit(self, position: Position) -> bool:
         """Return whether the position has already taken a partial profit."""
@@ -333,6 +366,35 @@ class PortfolioCoordinator:
         if matched_fraction is None:
             return self.default_partial_sell_fraction
         return Decimal(matched_fraction.group(1))
+
+    def _activate_order_request(self, order_request: OrderRequest) -> None:
+        self._active_order_request_ids.add(order_request.order_request_id)
+        self._active_order_request_ids_by_key.setdefault(
+            (order_request.instrument_id, order_request.side),
+            set(),
+        ).add(order_request.order_request_id)
+
+    def _deactivate_order_request(self, order_request: OrderRequest) -> None:
+        self._active_order_request_ids.discard(order_request.order_request_id)
+        order_key = (order_request.instrument_id, order_request.side)
+        active_ids = self._active_order_request_ids_by_key.get(order_key)
+        if active_ids is None:
+            return
+        active_ids.discard(order_request.order_request_id)
+        if not active_ids:
+            self._active_order_request_ids_by_key.pop(order_key, None)
+
+    def _remove_from_schedule(self, order_request_id: str) -> None:
+        for execution_date, order_request_ids in tuple(self._scheduled_order_ids_by_date.items()):
+            filtered_ids = [
+                scheduled_order_request_id
+                for scheduled_order_request_id in order_request_ids
+                if scheduled_order_request_id != order_request_id
+            ]
+            if filtered_ids:
+                self._scheduled_order_ids_by_date[execution_date] = filtered_ids
+            else:
+                self._scheduled_order_ids_by_date.pop(execution_date, None)
 
     @staticmethod
     def _resolve_execution_timestamp(signal: Signal, execution_date: date | None) -> datetime:

@@ -12,3 +12,15 @@ reservation:
   use_reserved_cash: true
   use_reserved_sell_quantity: true
 
+operational_safety:
+  enabled: true
+  daily_loss_limit_rate: 0.03
+  block_duplicate_active_orders: true
+  halt_on_abnormal_state: true
+  allow_exit_orders_during_daily_loss_block: true
+  abnormal_state_checks:
+    detect_negative_cash_balance: true
+    detect_available_cash_inconsistency: true
+    detect_reserved_cash_exceeds_cash_balance: true
+    detect_negative_position_quantity: true
+    detect_active_position_limit_breach: true

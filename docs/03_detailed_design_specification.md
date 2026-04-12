@@ -325,12 +325,34 @@ AI 점수와 후보 순위를 표준화한 객체
 - 주문 직전 리스크 검사
 - 체결 이벤트 기준 장부 갱신
 - 예약 자금/예약 수량 관리
+- 활성 주문 추적으로 중복 주문 차단
 
 ### 주요 메서드 예시
 - `build_order_request(signal, score_result=None)`
 - `reserve_for_buy(order_request)`
 - `reserve_for_sell(order_request)`
 - `apply_order_event(order_event)`
+
+---
+
+## 3.5 `OperationalSafetyGuard`
+### 책임
+- 당일 시작 자산 대비 일일 손실 제한 감시
+- 활성 주문 기준 중복 주문 차단 판단
+- 계좌/포지션 이상 상태 감지
+- 차단 사유를 표준 알림 객체로 생성
+
+### 주요 규칙
+- 일일 손실 제한 발동 시 신규 `buy` 주문 차단
+- 이상 상태 감지 시 `buy`/`sell` 모두 차단
+- 차단 이벤트는 로그와 알림으로 남김
+
+### 이상 상태 예시
+- `available_cash > cash_balance`
+- `reserved_cash > cash_balance`
+- `cash_balance < 0`
+- `active_position_count > max_position_limit`
+- `position.quantity < 0`
 
 ---
 
@@ -770,6 +792,7 @@ adapters/backtest/simulated_broker.py
 infrastructure/config/config_manager.py
 infrastructure/persistence/trade_repository.py
 infrastructure/logging/event_logger.py
+infrastructure/notifications/alert_dispatcher.py
 
 app/run_backtest.py
 ```
@@ -784,6 +807,7 @@ app/run_backtest.py
 
 ### 9.3 실거래 구현 파일
 - `adapters/live/live_broker.py`
+- `runtime/operational_safety.py`
 
 ---
 

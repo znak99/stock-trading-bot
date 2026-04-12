@@ -18,6 +18,7 @@ from stock_trading_bot.core.models import (
 )
 from stock_trading_bot.execution import ProcessedOrderEvent
 from stock_trading_bot.infrastructure import EventLogger
+from stock_trading_bot.infrastructure.notifications import AlertNotification
 from stock_trading_bot.runtime.result_collector import BacktestSummary
 from stock_trading_bot.universe.policies import CandidateFilterLogEntry
 
@@ -175,6 +176,24 @@ def test_event_logger_records_required_categories_with_monotonic_sequences(
         "final_account_state",
         "final_positions",
     }.issubset(set(record_types))
+
+
+def test_event_logger_records_operational_safety_alerts(tmp_path: Path) -> None:
+    logger = EventLogger(log_directory=tmp_path / "logs")
+    alert = AlertNotification.create(
+        timestamp=datetime(2026, 4, 13, 9, 30, tzinfo=UTC),
+        severity="warning",
+        code="daily_loss_limit_breached",
+        title="Daily loss limit breached",
+        message="blocked new entry orders",
+        metadata={"trading_date": "2026-04-13"},
+    )
+
+    logger.log_alerts((alert,))
+    records = _read_jsonl(logger.event_log_path)
+
+    assert records[-1]["record_type"] == "safety_alert"
+    assert records[-1]["payload"]["code"] == "daily_loss_limit_breached"
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

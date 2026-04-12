@@ -9,6 +9,8 @@ from decimal import Decimal
 from stock_trading_bot.core.models import MarketDataSnapshot, OrderEvent, OrderRequest
 from stock_trading_bot.execution import FillProcessor, OrderManager, ProcessedOrderEvent
 from stock_trading_bot.infrastructure.logging import EventLogger
+from stock_trading_bot.infrastructure.notifications import AlertDispatcher, AlertNotification
+from stock_trading_bot.runtime.operational_safety import OperationalSafetyGuard
 from stock_trading_bot.runtime.portfolio_coordinator import PortfolioCoordinator
 from stock_trading_bot.runtime.result_collector import ResultCollector
 
@@ -22,6 +24,8 @@ class ExecutionCoordinator:
     portfolio_coordinator: PortfolioCoordinator
     result_collector: ResultCollector
     event_logger: EventLogger | None = None
+    operational_safety_guard: OperationalSafetyGuard | None = None
+    alert_dispatcher: AlertDispatcher | None = None
 
     def submit_order(
         self,
@@ -130,7 +134,27 @@ class ExecutionCoordinator:
                 account_state=self.portfolio_coordinator.current_account_state(),
                 positions=self.portfolio_coordinator.current_positions(),
             )
+        self._evaluate_operational_safety(processed_event)
         return processed_event
+
+    def _evaluate_operational_safety(self, processed_event: ProcessedOrderEvent) -> None:
+        if self.operational_safety_guard is None:
+            return
+        alerts = self.operational_safety_guard.evaluate_portfolio(
+            trading_date=processed_event.order_event.timestamp.date(),
+            reason=f"order_event:{processed_event.order_event.event_type}",
+            account_state=self.portfolio_coordinator.current_account_state(),
+            positions=self.portfolio_coordinator.current_positions(),
+        )
+        self._emit_alerts(alerts)
+
+    def _emit_alerts(self, alerts: tuple[AlertNotification, ...]) -> None:
+        if not alerts:
+            return
+        if self.event_logger is not None:
+            self.event_logger.log_alerts(alerts)
+        if self.alert_dispatcher is not None:
+            self.alert_dispatcher.dispatch_all(alerts)
 
     @staticmethod
     def _resolve_market_price(
