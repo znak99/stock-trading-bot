@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -46,7 +46,13 @@ class HistoricalMarketDataFeed:
         with csv_path.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
             for row in reader:
-                rows.append({key: value for key, value in row.items() if key is not None and value is not None})
+                rows.append(
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key is not None and value is not None
+                    }
+                )
 
         bars = self._rows_to_bars(rows, instrument.instrument_id)
         self._ohlcv_cache[instrument.instrument_id] = bars
@@ -108,6 +114,24 @@ class HistoricalMarketDataFeed:
             for indicator_name in indicator_names
         }
 
+    def trading_dates(
+        self,
+        instruments: tuple[Instrument, ...],
+        *,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> tuple[date, ...]:
+        """Return sorted unique trading dates present in the loaded historical data."""
+
+        unique_dates = {
+            bar.timestamp.date()
+            for instrument in instruments
+            for bar in self.load_ohlcv(instrument)
+            if (start_date is None or bar.timestamp.date() >= start_date)
+            and (end_date is None or bar.timestamp.date() <= end_date)
+        }
+        return tuple(sorted(unique_dates))
+
     def _resolve_csv_path(self, instrument: Instrument) -> Path:
         candidates = (
             self._data_directory / f"{instrument.symbol}.csv",
@@ -127,7 +151,10 @@ class HistoricalMarketDataFeed:
         rows: list[dict[str, str]],
         instrument_id: str,
     ) -> tuple[HistoricalOhlcvBar, ...]:
-        normalized_rows = sorted(rows, key=lambda row: HistoricalMarketDataFeed._parse_timestamp(row))
+        normalized_rows = sorted(
+            rows,
+            key=lambda row: HistoricalMarketDataFeed._parse_timestamp(row),
+        )
 
         bars: list[HistoricalOhlcvBar] = []
         previous_close: Decimal | None = None

@@ -58,6 +58,7 @@ class PortfolioCoordinator:
         *,
         snapshot: MarketDataSnapshot,
         score_result: ScoreResult | None = None,
+        execution_date: date | None = None,
     ) -> OrderRequest | None:
         """Build a risk-checked order request from a strategy signal."""
 
@@ -69,7 +70,7 @@ class PortfolioCoordinator:
         provisional_order_request = OrderRequest(
             order_request_id=f"order:{signal.signal_id}",
             instrument_id=signal.instrument_id,
-            timestamp=signal.target_execution_time,
+            timestamp=self._resolve_execution_timestamp(signal, execution_date),
             side=side,
             order_type=self.order_type,
             quantity=requested_quantity,
@@ -143,6 +144,7 @@ class PortfolioCoordinator:
         *,
         snapshots_by_instrument_id: Mapping[str, MarketDataSnapshot],
         scores_by_candidate_ref: Mapping[str, ScoreResult] | None = None,
+        execution_date: date | None = None,
     ) -> tuple[OrderRequest, ...]:
         """Convert confirmed signals into reserved next-open orders."""
 
@@ -157,6 +159,7 @@ class PortfolioCoordinator:
                 signal,
                 snapshot=snapshot,
                 score_result=score_lookup.get(signal.candidate_ref),
+                execution_date=execution_date,
             )
             if order_request is None:
                 continue
@@ -173,6 +176,25 @@ class PortfolioCoordinator:
             scheduled_order_requests.append(order_request)
 
         return tuple(scheduled_order_requests)
+
+    def prepare_orders_for_execution(
+        self,
+        order_requests: Sequence[OrderRequest],
+        *,
+        snapshots_by_instrument_id: Mapping[str, MarketDataSnapshot],
+    ) -> tuple[OrderRequest, ...]:
+        """Reprice scheduled orders using the execution day's open snapshot."""
+
+        prepared_orders: list[OrderRequest] = []
+        for order_request in order_requests:
+            snapshot = snapshots_by_instrument_id.get(order_request.instrument_id)
+            if snapshot is None:
+                continue
+
+            order_request.price = snapshot.open_price
+            prepared_orders.append(order_request)
+
+        return tuple(prepared_orders)
 
     def pop_scheduled_orders(self, execution_date: date) -> tuple[OrderRequest, ...]:
         """Return and remove orders scheduled for the provided trading date."""
@@ -311,6 +333,16 @@ class PortfolioCoordinator:
         if matched_fraction is None:
             return self.default_partial_sell_fraction
         return Decimal(matched_fraction.group(1))
+
+    @staticmethod
+    def _resolve_execution_timestamp(signal: Signal, execution_date: date | None) -> datetime:
+        if execution_date is None:
+            return signal.target_execution_time
+        return signal.target_execution_time.replace(
+            year=execution_date.year,
+            month=execution_date.month,
+            day=execution_date.day,
+        )
 
     @staticmethod
     def _resolve_latest_timestamp(

@@ -50,6 +50,8 @@ def build_backtest_runtime(
     root = project_root or Path(__file__).resolve().parents[3]
     base_config = _load_yaml(root / "configs" / "base.yaml")
     mode_config = _load_yaml(root / "configs" / "modes" / "backtest.yaml")
+    start_date = date.fromisoformat(mode_config["backtest"]["start_date"])
+    end_date = date.fromisoformat(mode_config["backtest"]["end_date"])
     strategy_config = _load_yaml(
         root / "configs" / "strategy" / f"{base_config['profiles']['strategy']}.yaml"
     )
@@ -66,6 +68,16 @@ def build_backtest_runtime(
     instrument_by_id = {instrument.instrument_id: instrument for instrument in instruments}
 
     market_data_feed = HistoricalMarketDataFeed(data_directory=resolved_data_directory)
+    trading_dates = market_data_feed.trading_dates(
+        instruments,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if not trading_dates:
+        raise ValueError(
+            "No historical trading dates found within the configured backtest range. "
+            f"range=({start_date}, {end_date}), data_directory={resolved_data_directory}"
+        )
     candidate_selector = CandidateSelector(
         filter_policy=DefaultFilterPolicy(
             min_trading_value=_to_decimal(base_config["universe"]["min_trading_value"]),
@@ -175,9 +187,10 @@ def build_backtest_runtime(
         result_collector=result_collector,
     )
     session_clock = SessionClock(
-        start_date=date.fromisoformat(mode_config["backtest"]["start_date"]),
-        end_date=date.fromisoformat(mode_config["backtest"]["end_date"]),
+        start_date=start_date,
+        end_date=end_date,
         session_phases=tuple(base_config["runtime"]["session_phases"]),
+        trading_dates=trading_dates,
     )
 
     return ExecutionRuntime(
@@ -219,14 +232,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     result = run_backtest(project_root=args.project_root, data_directory=args.data_dir)
+    summary = result.summary
     print("Backtest completed.")
     print(f"phases={len(result.phase_history)}")
     print(f"candidates={len(result.candidates)}")
     print(f"signals={len(result.signals)}")
-    print(f"orders={len(result.order_requests)}")
-    print(f"events={len(result.processed_order_events)}")
-    print(f"active_positions={result.final_account_state.active_position_count}")
-    print(f"total_equity={result.final_account_state.total_equity}")
+    print(f"orders={summary.order_request_count}")
+    print(f"fill_events={summary.fill_event_count}")
+    print(f"initial_equity={summary.initial_equity}")
+    print(f"final_equity={summary.final_equity}")
+    print(f"total_pnl={summary.total_pnl}")
+    print(f"realized_pnl={summary.realized_pnl}")
+    print(f"unrealized_pnl={summary.unrealized_pnl}")
+    print(f"return_rate={summary.return_rate}")
+    print(f"buy_commission={summary.accumulated_buy_commission}")
+    print(f"sell_commission={summary.accumulated_sell_commission}")
+    print(f"sell_tax={summary.accumulated_sell_tax}")
+    print(f"slippage_estimate={summary.accumulated_slippage_cost_estimate}")
+    print(f"active_positions={summary.active_position_count}")
+    print(f"closed_positions={summary.closed_position_count}")
     return 0
 
 

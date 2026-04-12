@@ -26,6 +26,9 @@ class ExecutionRuntime:
     def bootstrap(self) -> None:
         """Initialize runtime state before the session loop starts."""
 
+        self.result_collector.record_initial_equity(
+            self.portfolio_coordinator.current_account_state().total_equity
+        )
         self._bootstrapped = True
 
     def run_session(self) -> RuntimeResult:
@@ -120,6 +123,7 @@ class ExecutionRuntime:
             score_result.candidate_ref: score_result
             for score_result in score_results
         }
+        next_trading_date = self.session_clock.next_trading_date(trading_date)
 
         ranked_entry_signals = tuple(
             sorted(
@@ -129,11 +133,15 @@ class ExecutionRuntime:
                 else 10**9,
             )
         )
-        scheduled_order_requests = self.portfolio_coordinator.schedule_next_open_orders(
-            (*close_exit_signals, *ranked_entry_signals),
-            snapshots_by_instrument_id=close_snapshots,
-            scores_by_candidate_ref=score_lookup,
-        )
+        if next_trading_date is None:
+            scheduled_order_requests = ()
+        else:
+            scheduled_order_requests = self.portfolio_coordinator.schedule_next_open_orders(
+                (*close_exit_signals, *ranked_entry_signals),
+                snapshots_by_instrument_id=close_snapshots,
+                scores_by_candidate_ref=score_lookup,
+                execution_date=next_trading_date,
+            )
         self.result_collector.record_order_requests(scheduled_order_requests)
 
     def run_next_open_execution(self, trading_date: date) -> None:
@@ -148,8 +156,12 @@ class ExecutionRuntime:
             session_phase="NEXT_OPEN_EXECUTION",
             is_final=False,
         )
-        self.execution_coordinator.submit_orders(
+        prepared_orders = self.portfolio_coordinator.prepare_orders_for_execution(
             scheduled_orders,
+            snapshots_by_instrument_id=open_snapshots,
+        )
+        self.execution_coordinator.submit_orders(
+            prepared_orders,
             market_snapshots_by_instrument_id=open_snapshots,
         )
 

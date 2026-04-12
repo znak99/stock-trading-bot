@@ -43,6 +43,7 @@ class SessionClock:
     end_date: date
     session_phases: tuple[str, ...] = CANONICAL_SESSION_PHASES
     runtime_phase_sequence: tuple[str, ...] = DEFAULT_RUNTIME_SEQUENCE
+    trading_dates: tuple[date, ...] = ()
 
     def __post_init__(self) -> None:
         if self.end_date < self.start_date:
@@ -63,9 +64,22 @@ class SessionClock:
         if any(phase_name not in self.session_phases for phase_name in normalized_runtime_sequence):
             raise ValueError("runtime_phase_sequence must be a subset of session_phases.")
         self.runtime_phase_sequence = normalized_runtime_sequence
+        if self.trading_dates:
+            normalized_trading_dates = tuple(
+                sorted({
+                    trading_date
+                    for trading_date in self.trading_dates
+                    if self.start_date <= trading_date <= self.end_date
+                })
+            )
+            self.trading_dates = normalized_trading_dates
 
     def iter_trading_dates(self) -> Iterator[date]:
         """Yield trading dates from start to end, inclusive."""
+
+        if self.trading_dates:
+            yield from self.trading_dates
+            return
 
         current_date = self.start_date
         while current_date <= self.end_date:
@@ -94,3 +108,17 @@ class SessionClock:
         """Return a tuple of normalized phase names."""
 
         return tuple(cls.normalize_phase_name(phase_name) for phase_name in phase_names)
+
+    def next_trading_date(self, current_date: date) -> date | None:
+        """Return the next trading date after the provided date."""
+
+        if self.trading_dates:
+            for trading_date in self.trading_dates:
+                if trading_date > current_date:
+                    return trading_date
+            return None
+
+        candidate = current_date + timedelta(days=1)
+        if candidate > self.end_date:
+            return None
+        return candidate

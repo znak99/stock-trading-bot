@@ -108,6 +108,13 @@ python -m stock_trading_bot.app.run_backtest
 python -m stock_trading_bot.app.run_backtest --data-dir tests/fixtures/market
 ```
 
+실행 결과는 표준 출력으로 요약됩니다.
+
+- `initial_equity`, `final_equity`, `total_pnl`, `return_rate`
+- `realized_pnl`, `unrealized_pnl`
+- `buy_commission`, `sell_commission`, `sell_tax`, `slippage_estimate`
+- 주문 수, 체결 이벤트 수, 최종 포지션 수
+
 ## 현재 상태
 
 현재 구현 범위는 다음까지 반영되어 있습니다.
@@ -124,5 +131,6 @@ python -m stock_trading_bot.app.run_backtest --data-dir tests/fixtures/market
 - SimulatedBroker와 실행 서비스(OrderManager, FillProcessor)
 - Runtime 실행 엔진(SessionClock, Coordinators, ResultCollector)
 - 백테스트 애플리케이션 엔트리포인트(`python -m stock_trading_bot.app.run_backtest`)
+- End-to-End 백테스트 흐름(필터 -> 전략 -> 주문 -> 체결 -> 청산 -> 결과 요약 출력)
 
 아직 남아 있는 주요 구현 범위는 AI 스코어링 고도화와 모의투자/실거래 어댑터 계층입니다.
