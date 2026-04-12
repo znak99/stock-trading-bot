@@ -1,0 +1,27 @@
+mode: live
+broker_mode: live
+
+application:
+  dry_run: false
+  enable_event_replay: false
+
+live:
+  broker_adapter: live_broker
+  broker_vendor: kis
+  api_environment: real
+  exchange_id: KRX
+  order_query_scope: inner
+  order_query_side_filter: "00"
+  order_query_fill_filter: "00"
+  order_query_sort_order: "01"
+  order_query_asset_filter: "00"
+  order_poll_lookback_days: 0
+  credentials:
+    api_key_env: BROKER_API_KEY
+    api_secret_env: BROKER_API_SECRET
+    account_no_env: BROKER_ACCOUNT_NO
+    account_product_code_env: BROKER_ACCOUNT_PRODUCT_CODE
+    hts_id_env: BROKER_HTS_ID
+  endpoints:
+    base_url_env: BROKER_BASE_URL
+    websocket_url_env: BROKER_WS_URL

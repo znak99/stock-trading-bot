@@ -468,6 +468,8 @@ MARKET_CLOSE_PROCESS
 #### 실거래
 - `RealtimeMarketDataFeed`
 - `LiveBroker`
+- v1 실거래 브로커는 KIS Open API를 기준으로 구현한다.
+- 체결 이벤트는 REST 주문체결조회 polling 결과를 표준 `OrderEvent`로 정규화한다.
 
 ### 9.3 설계 원칙
 - 전략/장부/비용 로직은 동일해야 한다.

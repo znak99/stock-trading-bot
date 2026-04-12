@@ -16,6 +16,7 @@ dependencies = [
   "pydantic>=2.11.0,<3.0.0",
   "PyYAML>=6.0.2,<7.0.0",
   "python-dotenv>=1.0.1,<2.0.0",
+  "requests>=2.32.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -49,4 +50,3 @@ packages = ["stock_trading_bot"]
 warn_unused_configs = true
 no_implicit_optional = true
 strict_equality = true
-

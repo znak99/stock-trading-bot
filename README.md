@@ -87,6 +87,7 @@ docker run --rm stock-trading-bot pytest -q
 
 - `configs/base.yaml`: 공통 런타임, 로깅, 프로파일 선택 기본값
 - `configs/modes/backtest.yaml`: 백테스트 모드 기본 설정
+- `configs/modes/live.yaml`: KIS Open API 기반 실거래 브로커 설정
 - `configs/strategy/breakout_swing_v1.yaml`: 돌파형 스윙 전략 기본값
 - `configs/risk/conservative_risk_v1.yaml`: 보수형 리스크 정책
 - `configs/costs/conservative.yaml`: 운영 기본 비용 프로파일
@@ -95,6 +96,7 @@ docker run --rm stock-trading-bot pytest -q
 
 `configs/base.yaml`의 `universe` 섹션은 기본 필터 정책과 최소 거래대금/거래량 임계값을 관리합니다.
 `configs/strategy/breakout_swing_v1.yaml`의 `ai_scoring` 섹션은 CoreFeatureSet 기반 1차 점수화 모델 설정을 관리합니다.
+`.env.example`의 `BROKER_*` 변수는 KIS Open API 실거래 연동과 주문체결 polling 정규화에 사용합니다.
 
 ## 백테스트 실행
 
@@ -149,5 +151,6 @@ python -m stock_trading_bot.app.run_parameter_experiments `
 - 백테스트 애플리케이션 엔트리포인트(`python -m stock_trading_bot.app.run_backtest`)
 - End-to-End 백테스트 흐름(필터 -> 전략 -> 주문 -> 체결 -> 청산 -> 결과 요약 출력)
 - 설정 파일 기반 파라미터 실험 반복 실행 및 결과 비교
+- KIS Open API 기반 `LiveBroker` REST 인증, 주문/취소, 체결조회 polling 정규화
 
-아직 남아 있는 주요 구현 범위는 AI 스코어링 고도화와 모의투자/실거래 어댑터 계층입니다.
+실거래 소액 주문 검증은 실제 KIS 계좌 자격증명이 준비되어야 마무리할 수 있습니다.

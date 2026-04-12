@@ -312,6 +312,12 @@ AI 점수와 후보 순위를 표준화한 객체
 - `handle_broker_event(raw_event)`
 - `normalize_event(raw_event) -> OrderEvent`
 
+### 실거래 구현 메모
+- `adapters/live/live_broker.py`는 KIS Open API를 기준으로 구현한다.
+- 주문 제출/취소는 REST API를 사용한다.
+- 체결 및 상태 변화는 주문체결조회 polling 결과를 `OrderEvent`로 정규화한다.
+- v1에서는 웹소켓 실시간 체결 통지는 선택 확장으로 남기고 polling을 기준 구현으로 둔다.
+
 ---
 
 ## 3.4 `PortfolioCoordinator`
@@ -775,6 +781,9 @@ app/run_backtest.py
 - `notifications/*`
 - 슬리피지 고도화 모듈
 - 리포트/성과 분석 모듈
+
+### 9.3 실거래 구현 파일
+- `adapters/live/live_broker.py`
 
 ---
 
