@@ -756,7 +756,7 @@ universe/services/candidate_selector.py
 universe/policies/default_filter_policy.py
 
 market/services/snapshot_builder.py
-market/indicators/indicator_preprocessor.py
+market/services/indicator_preprocessor.py
 
 adapters/backtest/historical_market_data_feed.py
 adapters/backtest/simulated_broker.py
