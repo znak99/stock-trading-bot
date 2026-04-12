@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
-from stock_trading_bot.core.models import CandidateSelectionResult, MarketDataSnapshot, Signal
+from typing import Literal
+
+from stock_trading_bot.core.models import CandidateSelectionResult, MarketDataSnapshot, Position, Signal
 
 
 class SignalFactory:
@@ -46,6 +48,35 @@ class SignalFactory:
             decision_reason=decision_reason,
             market_snapshot_ref=snapshot.snapshot_id,
             candidate_ref=candidate.candidate_id,
+            target_execution_time=self._build_next_open_execution_time(snapshot),
+            is_confirmed=is_confirmed,
+        )
+
+    def create_exit_signal(
+        self,
+        *,
+        position: Position,
+        snapshot: MarketDataSnapshot,
+        signal_type: Literal["sell", "partial_sell"],
+        signal_strength: Decimal,
+        decision_reason: str,
+        is_confirmed: bool = True,
+    ) -> Signal:
+        """Create a sell or partial-sell signal scheduled for the next market open."""
+
+        bounded_signal_strength = min(Decimal("1"), max(Decimal("0"), signal_strength))
+        return Signal(
+            signal_id=(
+                f"signal:{self._strategy_name}:{position.position_id}:{snapshot.snapshot_id}:{signal_type}"
+            ),
+            instrument_id=position.instrument_id,
+            timestamp=snapshot.timestamp,
+            signal_type=signal_type,
+            strategy_name=self._strategy_name,
+            signal_strength=bounded_signal_strength,
+            decision_reason=decision_reason,
+            market_snapshot_ref=snapshot.snapshot_id,
+            candidate_ref=position.position_id,
             target_execution_time=self._build_next_open_execution_time(snapshot),
             is_confirmed=is_confirmed,
         )
