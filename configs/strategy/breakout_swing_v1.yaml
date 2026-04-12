@@ -24,3 +24,36 @@ exit:
   first_take_profit_fraction: 0.5
   remainder_exit_rule: close_below_5day_moving_average
 
+ai_scoring:
+  enabled: true
+  feature_set_name: core_feature_set_v1
+  model_name: basic_ranking_model
+  model_version: v1
+  momentum_windows:
+    - 3
+    - 5
+    - 10
+  volume_average_window: 5
+  trading_value_average_window: 5
+  breakout_lookback_days: 20
+  short_moving_average_name: sma_5
+  long_moving_average_name: sma_20
+  rsi_indicator_name: rsi_14
+  price_return_cap: 0.15
+  gap_rate_cap: 0.05
+  volume_ratio_target: 2.0
+  trading_value_ratio_target: 2.0
+  breakout_distance_cap: 0.05
+  close_strength_min: 0.8
+  close_strength_target: 0.98
+  trend_gap_cap: 0.10
+  max_intraday_range_ratio: 0.12
+  rsi_neutral_floor: 45
+  rsi_neutral_ceiling: 75
+  trend_alignment_cap: 0.05
+  group_weights:
+    price_momentum: 0.25
+    volume_liquidity: 0.20
+    breakout_position: 0.25
+    trend_volatility: 0.20
+    market_context: 0.10

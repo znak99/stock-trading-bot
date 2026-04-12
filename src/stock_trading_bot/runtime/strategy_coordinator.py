@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from stock_trading_bot.adapters import HistoricalMarketDataFeed
+from stock_trading_bot.ai import CandidateRanker
 from stock_trading_bot.core.interfaces import ExitPolicy, RankingModel, Strategy
 from stock_trading_bot.core.models import (
     CandidateSelectionResult,
@@ -134,15 +135,10 @@ class StrategyCoordinator:
         """Rank close-confirmed candidates with a model or rule-based fallback."""
 
         if self.ranking_model is not None:
-            raw_scores = tuple(
-                self.ranking_model.score_candidate(
-                    candidate,
-                    snapshots_by_instrument_id[candidate.instrument_id],
-                )
-                for candidate in candidates
-                if candidate.instrument_id in snapshots_by_instrument_id
+            return CandidateRanker(ranking_model=self.ranking_model).rank_candidates(
+                candidates,
+                snapshots_by_instrument_id=snapshots_by_instrument_id,
             )
-            return self._normalize_ranks(raw_scores)
 
         signal_by_candidate_ref = {signal.candidate_ref: signal for signal in signals}
         fallback_scores = tuple(
@@ -162,7 +158,7 @@ class StrategyCoordinator:
             if candidate.candidate_id in signal_by_candidate_ref
             and candidate.instrument_id in snapshots_by_instrument_id
         )
-        return self._normalize_ranks(fallback_scores)
+        return CandidateRanker.normalize_ranks(fallback_scores)
 
     def drain_filter_evaluation_log(self) -> tuple[CandidateFilterLogEntry, ...]:
         """Return and clear accumulated filter-evaluation logs."""
@@ -195,23 +191,3 @@ class StrategyCoordinator:
             snapshots_by_instrument_id,
         )
 
-    @staticmethod
-    def _normalize_ranks(raw_scores: Sequence[ScoreResult]) -> tuple[ScoreResult, ...]:
-        ranked_scores = sorted(raw_scores, key=lambda score: score.score_value, reverse=True)
-        normalized_scores: list[ScoreResult] = []
-        for index, score in enumerate(ranked_scores, start=1):
-            normalized_scores.append(
-                ScoreResult(
-                    score_id=score.score_id,
-                    instrument_id=score.instrument_id,
-                    timestamp=score.timestamp,
-                    model_name=score.model_name,
-                    model_version=score.model_version,
-                    score_value=score.score_value,
-                    rank=index,
-                    feature_set_name=score.feature_set_name,
-                    candidate_ref=score.candidate_ref,
-                    score_reason_summary=score.score_reason_summary,
-                )
-            )
-        return tuple(normalized_scores)

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from stock_trading_bot.adapters import HistoricalMarketDataFeed, SimulatedBroker
+from stock_trading_bot.ai import BasicRankingModel, CoreFeatureSetBuilder
 from stock_trading_bot.core.models import Instrument
 from stock_trading_bot.execution import FillProcessor, OrderManager
 from stock_trading_bot.infrastructure.config import ConfigManager
@@ -179,6 +180,50 @@ def build_backtest_runtime(
         remainder_exit_ma_window=5,
         use_final_snapshot_only=bool(strategy_config["entry"]["use_final_snapshot_only"]),
     )
+    ai_scoring_config = strategy_config["ai_scoring"]
+    ranking_model = (
+        BasicRankingModel(
+            recent_bars_provider=recent_bars_provider,
+            core_feature_set_builder=CoreFeatureSetBuilder(
+                feature_set_name=str(ai_scoring_config["feature_set_name"]),
+                momentum_windows=tuple(
+                    int(window) for window in ai_scoring_config["momentum_windows"]
+                ),
+                volume_average_window=int(ai_scoring_config["volume_average_window"]),
+                trading_value_average_window=int(
+                    ai_scoring_config["trading_value_average_window"]
+                ),
+                breakout_lookback_days=int(ai_scoring_config["breakout_lookback_days"]),
+                short_moving_average_name=str(ai_scoring_config["short_moving_average_name"]),
+                long_moving_average_name=str(ai_scoring_config["long_moving_average_name"]),
+                rsi_indicator_name=str(ai_scoring_config["rsi_indicator_name"]),
+            ),
+            group_weights={
+                group_name: _to_decimal(weight)
+                for group_name, weight in ai_scoring_config["group_weights"].items()
+            },
+            price_return_cap=_to_decimal(ai_scoring_config["price_return_cap"]),
+            gap_rate_cap=_to_decimal(ai_scoring_config["gap_rate_cap"]),
+            volume_ratio_target=_to_decimal(ai_scoring_config["volume_ratio_target"]),
+            trading_value_ratio_target=_to_decimal(
+                ai_scoring_config["trading_value_ratio_target"]
+            ),
+            breakout_distance_cap=_to_decimal(ai_scoring_config["breakout_distance_cap"]),
+            close_strength_min=_to_decimal(ai_scoring_config["close_strength_min"]),
+            close_strength_target=_to_decimal(ai_scoring_config["close_strength_target"]),
+            trend_gap_cap=_to_decimal(ai_scoring_config["trend_gap_cap"]),
+            max_intraday_range_ratio=_to_decimal(
+                ai_scoring_config["max_intraday_range_ratio"]
+            ),
+            rsi_neutral_floor=_to_decimal(ai_scoring_config["rsi_neutral_floor"]),
+            rsi_neutral_ceiling=_to_decimal(ai_scoring_config["rsi_neutral_ceiling"]),
+            trend_alignment_cap=_to_decimal(ai_scoring_config["trend_alignment_cap"]),
+            name=str(ai_scoring_config["model_name"]),
+            version=str(ai_scoring_config["model_version"]),
+        )
+        if bool(ai_scoring_config["enabled"])
+        else None
+    )
 
     strategy_coordinator = StrategyCoordinator(
         instruments=instruments,
@@ -186,6 +231,7 @@ def build_backtest_runtime(
         candidate_selector=candidate_selector,
         entry_strategy=entry_strategy,
         exit_policy=exit_policy,
+        ranking_model=ranking_model,
     )
     result_collector = ResultCollector()
     event_logger = EventLogger(

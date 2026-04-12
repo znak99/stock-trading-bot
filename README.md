@@ -75,7 +75,7 @@ docker build -t stock-trading-bot .
 docker run --rm stock-trading-bot
 ```
 
-현재 애플리케이션 엔트리포인트는 아직 구현되지 않았기 때문에, 컨테이너 기본 명령은 패키지 설치 여부와 버전을 확인하는 수준으로만 구성되어 있습니다.
+기본 명령은 패키지 설치 여부와 버전을 확인합니다. 실제 백테스트 실행은 아래 CLI를 사용합니다.
 
 테스트 실행은 다음 명령을 사용합니다.
 
@@ -94,6 +94,7 @@ docker run --rm stock-trading-bot pytest -q
 - `configs/experiments/*.yaml`: 파라미터 실험 정의 파일
 
 `configs/base.yaml`의 `universe` 섹션은 기본 필터 정책과 최소 거래대금/거래량 임계값을 관리합니다.
+`configs/strategy/breakout_swing_v1.yaml`의 `ai_scoring` 섹션은 CoreFeatureSet 기반 1차 점수화 모델 설정을 관리합니다.
 
 ## 백테스트 실행
 
@@ -142,6 +143,7 @@ python -m stock_trading_bot.app.run_parameter_experiments `
 - UniverseSelection 필터 정책과 후보 선정 서비스
 - 돌파형 스윙 진입 전략, 종가 확정 엔진, Signal 생성기
 - 보수형 청산 정책
+- CoreFeatureSet 기반 AI Scoring 1차 구현과 후보 순위 정렬
 - SimulatedBroker와 실행 서비스(OrderManager, FillProcessor)
 - Runtime 실행 엔진(SessionClock, Coordinators, ResultCollector)
 - 백테스트 애플리케이션 엔트리포인트(`python -m stock_trading_bot.app.run_backtest`)
