@@ -1,6 +1,6 @@
-"""Universe selection and filtering components."""
+"""Universe filter policies and filter-chain primitives."""
 
-from .policies import (
+from .default_filter_policy import (
     CandidateFilterLogEntry,
     DefaultFilterPolicy,
     FilterChain,
@@ -11,11 +11,9 @@ from .policies import (
     TradingStatusFilter,
     TradingValueThresholdFilter,
 )
-from .services import CandidateSelector
 
 __all__ = [
     "CandidateFilterLogEntry",
-    "CandidateSelector",
     "DefaultFilterPolicy",
     "FilterChain",
     "FilterChainResult",
