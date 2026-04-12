@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from stock_trading_bot.core.models import MarketDataSnapshot, OrderEvent, OrderRequest
 from stock_trading_bot.execution import FillProcessor, OrderManager, ProcessedOrderEvent
+from stock_trading_bot.infrastructure.logging import EventLogger
 from stock_trading_bot.runtime.portfolio_coordinator import PortfolioCoordinator
 from stock_trading_bot.runtime.result_collector import ResultCollector
 
@@ -20,6 +21,7 @@ class ExecutionCoordinator:
     fill_processor: FillProcessor
     portfolio_coordinator: PortfolioCoordinator
     result_collector: ResultCollector
+    event_logger: EventLogger | None = None
 
     def submit_order(
         self,
@@ -121,6 +123,13 @@ class ExecutionCoordinator:
             market_price=market_price,
         )
         self.result_collector.record_processed_order_event(processed_event)
+        if self.event_logger is not None:
+            self.event_logger.log_processed_order_event(processed_event)
+            self.event_logger.log_portfolio_snapshot(
+                processed_order_event=processed_event,
+                account_state=self.portfolio_coordinator.current_account_state(),
+                positions=self.portfolio_coordinator.current_positions(),
+            )
         return processed_event
 
     @staticmethod

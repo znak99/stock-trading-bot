@@ -17,6 +17,7 @@ from stock_trading_bot.core.models import (
     Signal,
 )
 from stock_trading_bot.universe import CandidateSelector
+from stock_trading_bot.universe.policies import CandidateFilterLogEntry
 
 
 @dataclass(slots=True, kw_only=True)
@@ -162,6 +163,13 @@ class StrategyCoordinator:
             and candidate.instrument_id in snapshots_by_instrument_id
         )
         return self._normalize_ranks(fallback_scores)
+
+    def drain_filter_evaluation_log(self) -> tuple[CandidateFilterLogEntry, ...]:
+        """Return and clear accumulated filter-evaluation logs."""
+
+        filter_evaluation_log = self.candidate_selector.get_evaluation_log()
+        self.candidate_selector.clear_evaluation_log()
+        return filter_evaluation_log
 
     def _select_candidates(
         self,

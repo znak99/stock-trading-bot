@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from datetime import date
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,8 @@ import yaml
 from stock_trading_bot.adapters import HistoricalMarketDataFeed, SimulatedBroker
 from stock_trading_bot.core.models import Instrument
 from stock_trading_bot.execution import FillProcessor, OrderManager
+from stock_trading_bot.infrastructure.logging import EventLogger
+from stock_trading_bot.infrastructure.persistence import TradeRepository
 from stock_trading_bot.portfolio import (
     AccountStateStore,
     CostProfile,
@@ -44,6 +46,8 @@ def build_backtest_runtime(
     *,
     project_root: Path | None = None,
     data_directory: Path | None = None,
+    result_directory: Path | None = None,
+    log_directory: Path | None = None,
 ) -> ExecutionRuntime:
     """Build the backtest runtime from repository config files."""
 
@@ -62,8 +66,16 @@ def build_backtest_runtime(
     market_config = _load_yaml(
         root / "configs" / "market" / f"{base_config['profiles']['market']}.yaml"
     )
+    runtime_mode = str(mode_config.get("mode", base_config["runtime"]["mode"]))
+    run_label = _build_run_label(runtime_mode, start_date, end_date)
 
     resolved_data_directory = data_directory or (root / base_config["paths"]["data_root"])
+    resolved_result_directory = (
+        result_directory or (root / mode_config["backtest"]["result_path"])
+    ) / run_label
+    resolved_log_directory = (
+        log_directory or (root / base_config["paths"]["log_dir"])
+    ) / run_label
     instruments = _discover_instruments(resolved_data_directory, market_config)
     instrument_by_id = {instrument.instrument_id: instrument for instrument in instruments}
 
@@ -122,6 +134,7 @@ def build_backtest_runtime(
             broker_mode=mode_config["broker_mode"],
             cash_balance=_to_decimal(mode_config["backtest"]["initial_cash_balance"]),
             max_position_limit=int(risk_config["risk_checks"]["max_active_positions"]),
+            timestamp=datetime.combine(trading_dates[0], time.min, tzinfo=UTC),
         )
     )
     portfolio_updater = PortfolioUpdater(
@@ -179,12 +192,26 @@ def build_backtest_runtime(
         exit_policy=exit_policy,
     )
     result_collector = ResultCollector()
+    event_logger = EventLogger(
+        log_directory=resolved_log_directory,
+        record_order_requests=bool(base_config["logging"]["record_order_requests"]),
+        record_order_state_changes=bool(base_config["logging"]["record_order_state_changes"]),
+        record_fill_events=bool(base_config["logging"]["record_fill_events"]),
+        record_position_changes=bool(base_config["logging"]["record_position_changes"]),
+        record_pnl=bool(base_config["logging"]["record_pnl"]),
+    )
+    trade_repository = (
+        TradeRepository(result_directory=resolved_result_directory)
+        if bool(mode_config["backtest"]["persist_results"])
+        else None
+    )
     order_manager = OrderManager(broker=SimulatedBroker())
     execution_coordinator = ExecutionCoordinator(
         order_manager=order_manager,
         fill_processor=FillProcessor(order_manager=order_manager),
         portfolio_coordinator=portfolio_coordinator,
         result_collector=result_collector,
+        event_logger=event_logger,
     )
     session_clock = SessionClock(
         start_date=start_date,
@@ -199,6 +226,8 @@ def build_backtest_runtime(
         execution_coordinator=execution_coordinator,
         portfolio_coordinator=portfolio_coordinator,
         result_collector=result_collector,
+        event_logger=event_logger,
+        trade_repository=trade_repository,
     )
 
 
@@ -206,10 +235,17 @@ def run_backtest(
     *,
     project_root: Path | None = None,
     data_directory: Path | None = None,
+    result_directory: Path | None = None,
+    log_directory: Path | None = None,
 ):
     """Build the runtime and execute the configured backtest."""
 
-    runtime = build_backtest_runtime(project_root=project_root, data_directory=data_directory)
+    runtime = build_backtest_runtime(
+        project_root=project_root,
+        data_directory=data_directory,
+        result_directory=result_directory,
+        log_directory=log_directory,
+    )
     return runtime.run_session()
 
 
@@ -229,9 +265,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Historical CSV directory. Defaults to configs/base.yaml paths.data_root.",
     )
+    parser.add_argument(
+        "--result-dir",
+        type=Path,
+        default=None,
+        help="Directory where persisted backtest artifacts are written.",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=Path,
+        default=None,
+        help="Directory where structured event logs are written.",
+    )
     args = parser.parse_args(argv)
 
-    result = run_backtest(project_root=args.project_root, data_directory=args.data_dir)
+    result = run_backtest(
+        project_root=args.project_root,
+        data_directory=args.data_dir,
+        result_directory=args.result_dir,
+        log_directory=args.log_dir,
+    )
     summary = result.summary
     print("Backtest completed.")
     print(f"phases={len(result.phase_history)}")
@@ -291,6 +344,10 @@ def _discover_instruments(
 
 def _to_decimal(value: Any) -> Decimal:
     return Decimal(str(value))
+
+
+def _build_run_label(runtime_mode: str, start_date: date, end_date: date) -> str:
+    return f"{runtime_mode}_{start_date.isoformat()}_{end_date.isoformat()}"
 
 
 if __name__ == "__main__":

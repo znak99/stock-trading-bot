@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
 
 from stock_trading_bot.core.enums import OrderEventType
 from stock_trading_bot.core.models import AccountState, OrderEvent, OrderRequest, Position
@@ -57,11 +56,18 @@ class PortfolioUpdater:
         self._default_exit_policy_name = default_exit_policy_name
         self._tracked_orders: dict[str, _TrackedOrder] = {}
 
-    def reserve_for_buy(self, order_request: OrderRequest, reference_price: Decimal | None = None) -> None:
+    def reserve_for_buy(
+        self,
+        order_request: OrderRequest,
+        reference_price: Decimal | None = None,
+    ) -> None:
         """Reserve cash for a pending buy order."""
 
         reference = reference_price or order_request.price
-        reserved_cash = self._cost_profile.estimate_buy_cash_requirement(reference, order_request.quantity)
+        reserved_cash = self._cost_profile.estimate_buy_cash_requirement(
+            reference,
+            order_request.quantity,
+        )
         account_state = self._account_state_store.get_state()
         if reserved_cash > account_state.available_cash:
             raise ValueError("Insufficient available cash to reserve for buy order.")
@@ -81,12 +87,17 @@ class PortfolioUpdater:
             raise ValueError("Cannot reserve sell quantity without an open position.")
 
         account_state = self._account_state_store.get_state()
-        reserved_quantity = account_state.reserved_sell_quantity.get(order_request.instrument_id, Decimal("0"))
+        reserved_quantity = account_state.reserved_sell_quantity.get(
+            order_request.instrument_id,
+            Decimal("0"),
+        )
         tradable_quantity = position.quantity - reserved_quantity
         if order_request.quantity > tradable_quantity:
             raise ValueError("Insufficient tradable quantity to reserve for sell order.")
 
-        account_state.reserved_sell_quantity[order_request.instrument_id] = reserved_quantity + order_request.quantity
+        account_state.reserved_sell_quantity[order_request.instrument_id] = (
+            reserved_quantity + order_request.quantity
+        )
         self._track_order(
             order_request,
             reserved_cash_remaining=Decimal("0"),
@@ -111,7 +122,10 @@ class PortfolioUpdater:
             )
 
         event_type = OrderEventType(order_event.event_type)
-        delta_fill_quantity, delta_raw_fill_price = self._resolve_delta_fill(order_event, tracked_order)
+        delta_fill_quantity, delta_raw_fill_price = self._resolve_delta_fill(
+            order_event,
+            tracked_order,
+        )
 
         if delta_fill_quantity > Decimal("0"):
             if order_request.side == "buy":
@@ -156,7 +170,9 @@ class PortfolioUpdater:
         market_price: Decimal | None,
     ) -> None:
         account_state = self._account_state_store.get_state()
-        effective_buy_price = delta_raw_fill_price * (Decimal("1") + self._cost_profile.buy_slippage_rate)
+        effective_buy_price = delta_raw_fill_price * (
+            Decimal("1") + self._cost_profile.buy_slippage_rate
+        )
         gross_buy_amount = effective_buy_price * delta_fill_quantity
         buy_commission = gross_buy_amount * self._cost_profile.buy_commission_rate
         total_buy_cash = gross_buy_amount + buy_commission
@@ -177,7 +193,7 @@ class PortfolioUpdater:
         position = self._position_book.get(tracked_order.order_request.instrument_id)
         if position is None or position.position_status != "open":
             position = Position(
-                position_id=f"position-{uuid4().hex}",
+                position_id=f"position:{tracked_order.order_request.instrument_id}",
                 instrument_id=tracked_order.order_request.instrument_id,
                 opened_at=order_event.timestamp,
                 updated_at=order_event.timestamp,
@@ -193,7 +209,8 @@ class PortfolioUpdater:
         existing_quantity = position.quantity
         new_quantity = existing_quantity + delta_fill_quantity
         new_avg_entry_price = (
-            (existing_quantity * position.avg_entry_price) + (delta_fill_quantity * effective_buy_price)
+            (existing_quantity * position.avg_entry_price)
+            + (delta_fill_quantity * effective_buy_price)
         ) / new_quantity
         current_price = market_price or effective_buy_price
 
@@ -229,7 +246,9 @@ class PortfolioUpdater:
             raise ValueError("Sell fill quantity exceeds the current position quantity.")
 
         account_state = self._account_state_store.get_state()
-        effective_sell_price = delta_raw_fill_price * (Decimal("1") - self._cost_profile.sell_slippage_rate)
+        effective_sell_price = delta_raw_fill_price * (
+            Decimal("1") - self._cost_profile.sell_slippage_rate
+        )
         gross_sell_amount = effective_sell_price * delta_fill_quantity
         sell_commission = gross_sell_amount * self._cost_profile.sell_commission_rate
         sell_tax = gross_sell_amount * self._cost_profile.sell_tax_rate
@@ -254,11 +273,19 @@ class PortfolioUpdater:
             tracked_order.order_request.instrument_id,
             Decimal("0"),
         )
-        new_reserved_quantity = max(Decimal("0"), current_reserved_quantity - reserved_quantity_release)
+        new_reserved_quantity = max(
+            Decimal("0"),
+            current_reserved_quantity - reserved_quantity_release,
+        )
         if new_reserved_quantity == Decimal("0"):
-            account_state.reserved_sell_quantity.pop(tracked_order.order_request.instrument_id, None)
+            account_state.reserved_sell_quantity.pop(
+                tracked_order.order_request.instrument_id,
+                None,
+            )
         else:
-            account_state.reserved_sell_quantity[tracked_order.order_request.instrument_id] = new_reserved_quantity
+            account_state.reserved_sell_quantity[
+                tracked_order.order_request.instrument_id
+            ] = new_reserved_quantity
 
         position.quantity -= delta_fill_quantity
         position.current_price = market_price or effective_sell_price
@@ -269,7 +296,9 @@ class PortfolioUpdater:
             position.unrealized_pnl_rate = Decimal("0")
         else:
             position.position_status = "open"
-            position.unrealized_pnl = (position.current_price - position.avg_entry_price) * position.quantity
+            position.unrealized_pnl = (
+                position.current_price - position.avg_entry_price
+            ) * position.quantity
             position.unrealized_pnl_rate = (
                 Decimal("0")
                 if position.avg_entry_price == Decimal("0")
@@ -295,7 +324,10 @@ class PortfolioUpdater:
                 current_reserved_quantity - tracked_order.reserved_sell_quantity_remaining,
             )
             if new_reserved_quantity == Decimal("0"):
-                account_state.reserved_sell_quantity.pop(tracked_order.order_request.instrument_id, None)
+                account_state.reserved_sell_quantity.pop(
+                    tracked_order.order_request.instrument_id,
+                    None,
+                )
             else:
                 account_state.reserved_sell_quantity[tracked_order.order_request.instrument_id] = (
                     new_reserved_quantity

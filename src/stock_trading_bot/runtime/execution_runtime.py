@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from stock_trading_bot.infrastructure.logging import EventLogger
+from stock_trading_bot.infrastructure.persistence import TradeRepository
 from stock_trading_bot.runtime.execution_coordinator import ExecutionCoordinator
 from stock_trading_bot.runtime.portfolio_coordinator import PortfolioCoordinator
 from stock_trading_bot.runtime.result_collector import ResultCollector, RuntimeResult
@@ -21,6 +23,8 @@ class ExecutionRuntime:
     execution_coordinator: ExecutionCoordinator
     portfolio_coordinator: PortfolioCoordinator
     result_collector: ResultCollector
+    event_logger: EventLogger | None = None
+    trade_repository: TradeRepository | None = None
     _bootstrapped: bool = field(default=False, init=False)
 
     def bootstrap(self) -> None:
@@ -29,6 +33,11 @@ class ExecutionRuntime:
         self.result_collector.record_initial_equity(
             self.portfolio_coordinator.current_account_state().total_equity
         )
+        if self.event_logger is not None:
+            self.event_logger.log_account_state(
+                self.portfolio_coordinator.current_account_state(),
+                reason="bootstrap",
+            )
         self._bootstrapped = True
 
     def run_session(self) -> RuntimeResult:
@@ -39,6 +48,11 @@ class ExecutionRuntime:
 
         for session_step in self.session_clock.iter_session_steps():
             self.result_collector.record_phase(session_step.trading_date, session_step.phase)
+            if self.event_logger is not None:
+                self.event_logger.log_session_phase(
+                    session_step.trading_date,
+                    session_step.phase,
+                )
 
             if session_step.phase == "PRE_MARKET":
                 self.run_pre_market(session_step.trading_date)
@@ -69,7 +83,7 @@ class ExecutionRuntime:
             self.portfolio_coordinator.mark_to_market(intraday_snapshots)
 
         intraday_candidates = self.strategy_coordinator.scan_intraday_candidates(trading_date)
-        self.result_collector.record_candidates(intraday_candidates)
+        self._record_candidates(intraday_candidates)
 
         intraday_exit_signals = self.strategy_coordinator.evaluate_exit_signals(
             trading_date,
@@ -77,7 +91,7 @@ class ExecutionRuntime:
             session_phase="INTRADAY_MONITOR",
             is_final=False,
         )
-        self.result_collector.record_signals(intraday_exit_signals)
+        self._record_signals(intraday_exit_signals)
 
     def run_market_close_process(self, trading_date: date) -> None:
         """Run close confirmation, ranking, risk checks, and next-open scheduling."""
@@ -91,14 +105,14 @@ class ExecutionRuntime:
             self.portfolio_coordinator.mark_to_market(close_snapshots)
 
         close_candidates = self.strategy_coordinator.select_close_candidates(trading_date)
-        self.result_collector.record_candidates(close_candidates)
+        self._record_candidates(close_candidates)
 
         close_entry_signals = self.strategy_coordinator.confirm_close_candidates(
             trading_date,
             candidates=close_candidates,
             snapshots_by_instrument_id=close_snapshots,
         )
-        self.result_collector.record_signals(close_entry_signals)
+        self._record_signals(close_entry_signals)
 
         close_exit_signals = self.strategy_coordinator.evaluate_exit_signals(
             trading_date,
@@ -106,7 +120,7 @@ class ExecutionRuntime:
             session_phase="MARKET_CLOSE_PROCESS",
             is_final=True,
         )
-        self.result_collector.record_signals(close_exit_signals)
+        self._record_signals(close_exit_signals)
 
         ranked_candidates = tuple(
             candidate
@@ -118,7 +132,7 @@ class ExecutionRuntime:
             signals=close_entry_signals,
             snapshots_by_instrument_id=close_snapshots,
         )
-        self.result_collector.record_scores(score_results)
+        self._record_scores(score_results)
         score_lookup = {
             score_result.candidate_ref: score_result
             for score_result in score_results
@@ -142,7 +156,7 @@ class ExecutionRuntime:
                 scores_by_candidate_ref=score_lookup,
                 execution_date=next_trading_date,
             )
-        self.result_collector.record_order_requests(scheduled_order_requests)
+        self._record_order_requests(scheduled_order_requests)
 
     def run_next_open_execution(self, trading_date: date) -> None:
         """Submit next-open orders for the trading date and process all fills/events."""
@@ -168,7 +182,47 @@ class ExecutionRuntime:
     def shutdown(self) -> RuntimeResult:
         """Finalize and return the collected runtime result."""
 
-        return self.result_collector.build_result(
+        runtime_result = self.result_collector.build_result(
             final_account_state=self.portfolio_coordinator.current_account_state(),
             final_positions=self.portfolio_coordinator.current_positions(),
         )
+        if self.event_logger is not None:
+            self.event_logger.log_summary(
+                summary=runtime_result.summary,
+                final_account_state=runtime_result.final_account_state,
+                final_positions=runtime_result.final_positions,
+            )
+        if self.trade_repository is not None:
+            self.trade_repository.save_runtime_result(
+                runtime_result,
+                event_log_path=(
+                    self.event_logger.event_log_path
+                    if self.event_logger is not None
+                    else None
+                ),
+            )
+        return runtime_result
+
+    def _record_candidates(self, candidates: tuple) -> None:
+        self.result_collector.record_candidates(candidates)
+        if self.event_logger is None:
+            return
+        self.event_logger.log_filter_evaluations(
+            self.strategy_coordinator.drain_filter_evaluation_log()
+        )
+        self.event_logger.log_candidates(candidates)
+
+    def _record_signals(self, signals: tuple) -> None:
+        self.result_collector.record_signals(signals)
+        if self.event_logger is not None:
+            self.event_logger.log_signals(signals)
+
+    def _record_scores(self, scores: tuple) -> None:
+        self.result_collector.record_scores(scores)
+        if self.event_logger is not None:
+            self.event_logger.log_scores(scores)
+
+    def _record_order_requests(self, order_requests: tuple) -> None:
+        self.result_collector.record_order_requests(order_requests)
+        if self.event_logger is not None:
+            self.event_logger.log_order_requests(order_requests)
