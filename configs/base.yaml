@@ -11,6 +11,11 @@ runtime:
     - MARKET_CLOSE_PROCESS
     - NEXT_OPEN_EXECUTION
 
+universe:
+  filter_policy: default_filter_policy
+  min_trading_value: 100000000
+  min_volume: 100000
+
 profiles:
   mode: backtest
   strategy: breakout_swing_v1
@@ -32,4 +37,3 @@ logging:
   record_fill_events: true
   record_position_changes: true
   record_pnl: true
-

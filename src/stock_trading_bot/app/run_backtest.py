@@ -1,0 +1,273 @@
+"""Backtest application entrypoint and runtime builder."""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Sequence
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from stock_trading_bot.adapters import HistoricalMarketDataFeed, SimulatedBroker
+from stock_trading_bot.core.models import Instrument
+from stock_trading_bot.execution import FillProcessor, OrderManager
+from stock_trading_bot.portfolio import (
+    AccountStateStore,
+    CostProfile,
+    EqualWeightAllocationPolicy,
+    PortfolioUpdater,
+    PositionBook,
+    PreTradeRiskChecker,
+)
+from stock_trading_bot.portfolio.services.portfolio_updater import build_initial_account_state
+from stock_trading_bot.runtime import (
+    ExecutionCoordinator,
+    ExecutionRuntime,
+    PortfolioCoordinator,
+    ResultCollector,
+    SessionClock,
+    StrategyCoordinator,
+)
+from stock_trading_bot.strategy import (
+    BreakoutSwingEntryStrategy,
+    CloseConfirmationEngine,
+    ConservativeExitPolicy,
+    SignalFactory,
+)
+from stock_trading_bot.universe import CandidateSelector, DefaultFilterPolicy
+
+
+def build_backtest_runtime(
+    *,
+    project_root: Path | None = None,
+    data_directory: Path | None = None,
+) -> ExecutionRuntime:
+    """Build the backtest runtime from repository config files."""
+
+    root = project_root or Path(__file__).resolve().parents[3]
+    base_config = _load_yaml(root / "configs" / "base.yaml")
+    mode_config = _load_yaml(root / "configs" / "modes" / "backtest.yaml")
+    strategy_config = _load_yaml(
+        root / "configs" / "strategy" / f"{base_config['profiles']['strategy']}.yaml"
+    )
+    risk_config = _load_yaml(root / "configs" / "risk" / f"{base_config['profiles']['risk']}.yaml")
+    costs_config = _load_yaml(
+        root / "configs" / "costs" / f"{base_config['profiles']['costs']}.yaml"
+    )
+    market_config = _load_yaml(
+        root / "configs" / "market" / f"{base_config['profiles']['market']}.yaml"
+    )
+
+    resolved_data_directory = data_directory or (root / base_config["paths"]["data_root"])
+    instruments = _discover_instruments(resolved_data_directory, market_config)
+    instrument_by_id = {instrument.instrument_id: instrument for instrument in instruments}
+
+    market_data_feed = HistoricalMarketDataFeed(data_directory=resolved_data_directory)
+    candidate_selector = CandidateSelector(
+        filter_policy=DefaultFilterPolicy(
+            min_trading_value=_to_decimal(base_config["universe"]["min_trading_value"]),
+            min_volume=int(base_config["universe"]["min_volume"]),
+            name=base_config["universe"]["filter_policy"],
+        )
+    )
+
+    def recent_bars_provider(instrument_id: str, snapshot: object) -> tuple[Any, ...]:
+        del snapshot
+        return market_data_feed.load_enriched_bars(instrument_by_id[instrument_id])
+
+    cost_profile = CostProfile(
+        buy_commission_rate=_to_decimal(costs_config["buy_commission_rate"]),
+        sell_commission_rate=_to_decimal(costs_config["sell_commission_rate"]),
+        sell_tax_rate=_to_decimal(costs_config["sell_tax_rate"]),
+        buy_slippage_rate=_to_decimal(costs_config["buy_slippage_rate"]),
+        sell_slippage_rate=_to_decimal(costs_config["sell_slippage_rate"]),
+    )
+    allocation_policy = EqualWeightAllocationPolicy(
+        max_position_ratio=_to_decimal(risk_config["risk_checks"]["max_position_ratio"]),
+        lot_size=_to_decimal(market_config["order_rules"]["lot_size"]),
+    )
+    risk_checker = PreTradeRiskChecker(
+        risk_policy_name=risk_config["name"],
+        max_active_positions=int(risk_config["risk_checks"]["max_active_positions"]),
+        max_position_ratio=_to_decimal(risk_config["risk_checks"]["max_position_ratio"]),
+        max_single_order_ratio=_to_decimal(risk_config["risk_checks"]["max_single_order_ratio"]),
+        block_duplicate_long_entry=bool(risk_config["risk_checks"]["block_duplicate_long_entry"]),
+        min_available_cash_after_order=_to_decimal(
+            risk_config["risk_checks"]["min_available_cash_after_order"]
+        ),
+        buy_commission_rate=cost_profile.buy_commission_rate,
+        buy_slippage_rate=cost_profile.buy_slippage_rate,
+        allocation_policy=allocation_policy,
+    )
+
+    position_book = PositionBook()
+    account_state_store = AccountStateStore(
+        build_initial_account_state(
+            account_state_id="account:backtest:001",
+            broker_mode=mode_config["broker_mode"],
+            cash_balance=_to_decimal(mode_config["backtest"]["initial_cash_balance"]),
+            max_position_limit=int(risk_config["risk_checks"]["max_active_positions"]),
+        )
+    )
+    portfolio_updater = PortfolioUpdater(
+        position_book=position_book,
+        account_state_store=account_state_store,
+        cost_profile=cost_profile,
+    )
+    portfolio_coordinator = PortfolioCoordinator(
+        position_book=position_book,
+        account_state_store=account_state_store,
+        risk_checker=risk_checker,
+        portfolio_updater=portfolio_updater,
+        allocation_policy=allocation_policy,
+        broker_mode=mode_config["broker_mode"],
+        order_type=strategy_config["execution"]["order_type"],
+        time_in_force=strategy_config["execution"]["time_in_force"],
+        lot_size=_to_decimal(market_config["order_rules"]["lot_size"]),
+        default_partial_sell_fraction=_to_decimal(
+            strategy_config["exit"]["first_take_profit_fraction"]
+        ),
+    )
+
+    signal_factory = SignalFactory(strategy_name=strategy_config["name"])
+    close_confirmation_engine = CloseConfirmationEngine(
+        breakout_lookback_days=int(strategy_config["entry"]["breakout_lookback_days"]),
+        volume_ratio_min=_to_decimal(strategy_config["entry"]["volume_ratio_min"]),
+        volume_ratio_target=_to_decimal(strategy_config["entry"]["volume_ratio_target"]),
+        close_strength_min=_to_decimal(strategy_config["entry"]["close_strength_min"]),
+        close_must_hold_recent_high=bool(strategy_config["entry"]["close_must_hold_recent_high"]),
+    )
+    entry_strategy = BreakoutSwingEntryStrategy(
+        recent_bars_provider=recent_bars_provider,
+        close_confirmation_engine=close_confirmation_engine,
+        signal_factory=signal_factory,
+        name=strategy_config["name"],
+        use_final_snapshot_only=bool(strategy_config["entry"]["use_final_snapshot_only"]),
+    )
+    exit_policy = ConservativeExitPolicy(
+        recent_bars_provider=recent_bars_provider,
+        signal_factory=signal_factory,
+        has_partial_take_profit_provider=portfolio_coordinator.has_partial_take_profit,
+        name="conservative_exit_policy",
+        stop_loss_rate=_to_decimal(strategy_config["exit"]["stop_loss_rate"]),
+        first_take_profit_rate=_to_decimal(strategy_config["exit"]["first_take_profit_rate"]),
+        first_take_profit_fraction=_to_decimal(strategy_config["exit"]["first_take_profit_fraction"]),
+        remainder_exit_ma_window=5,
+        use_final_snapshot_only=bool(strategy_config["entry"]["use_final_snapshot_only"]),
+    )
+
+    strategy_coordinator = StrategyCoordinator(
+        instruments=instruments,
+        market_data_feed=market_data_feed,
+        candidate_selector=candidate_selector,
+        entry_strategy=entry_strategy,
+        exit_policy=exit_policy,
+    )
+    result_collector = ResultCollector()
+    order_manager = OrderManager(broker=SimulatedBroker())
+    execution_coordinator = ExecutionCoordinator(
+        order_manager=order_manager,
+        fill_processor=FillProcessor(order_manager=order_manager),
+        portfolio_coordinator=portfolio_coordinator,
+        result_collector=result_collector,
+    )
+    session_clock = SessionClock(
+        start_date=date.fromisoformat(mode_config["backtest"]["start_date"]),
+        end_date=date.fromisoformat(mode_config["backtest"]["end_date"]),
+        session_phases=tuple(base_config["runtime"]["session_phases"]),
+    )
+
+    return ExecutionRuntime(
+        session_clock=session_clock,
+        strategy_coordinator=strategy_coordinator,
+        execution_coordinator=execution_coordinator,
+        portfolio_coordinator=portfolio_coordinator,
+        result_collector=result_collector,
+    )
+
+
+def run_backtest(
+    *,
+    project_root: Path | None = None,
+    data_directory: Path | None = None,
+):
+    """Build the runtime and execute the configured backtest."""
+
+    runtime = build_backtest_runtime(project_root=project_root, data_directory=data_directory)
+    return runtime.run_session()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entrypoint for the backtest runtime."""
+
+    parser = argparse.ArgumentParser(description="Run the stock trading bot backtest runtime.")
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=None,
+        help="Repository root containing configs/ and data/.",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=None,
+        help="Historical CSV directory. Defaults to configs/base.yaml paths.data_root.",
+    )
+    args = parser.parse_args(argv)
+
+    result = run_backtest(project_root=args.project_root, data_directory=args.data_dir)
+    print("Backtest completed.")
+    print(f"phases={len(result.phase_history)}")
+    print(f"candidates={len(result.candidates)}")
+    print(f"signals={len(result.signals)}")
+    print(f"orders={len(result.order_requests)}")
+    print(f"events={len(result.processed_order_events)}")
+    print(f"active_positions={result.final_account_state.active_position_count}")
+    print(f"total_equity={result.final_account_state.total_equity}")
+    return 0
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a mapping in {path}.")
+    return data
+
+
+def _discover_instruments(
+    data_directory: Path,
+    market_config: dict[str, Any],
+) -> tuple[Instrument, ...]:
+    if not data_directory.exists():
+        raise FileNotFoundError(f"Historical data directory does not exist: {data_directory}")
+
+    csv_paths = sorted(data_directory.glob("*.csv"))
+    if not csv_paths:
+        raise FileNotFoundError(f"No CSV files found in {data_directory}")
+
+    market_name = str(market_config.get("name", "kr_stock"))
+    return tuple(
+        Instrument(
+            instrument_id=csv_path.stem,
+            symbol=csv_path.stem,
+            name=csv_path.stem,
+            market=market_name,
+            asset_type="equity",
+            sector="unknown",
+            is_etf=False,
+            is_active=True,
+        )
+        for csv_path in csv_paths
+    )
+
+
+def _to_decimal(value: Any) -> Decimal:
+    return Decimal(str(value))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

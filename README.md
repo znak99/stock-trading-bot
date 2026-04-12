@@ -92,6 +92,22 @@ docker run --rm stock-trading-bot pytest -q
 - `configs/costs/conservative.yaml`: 운영 기본 비용 프로파일
 - `configs/market/kr_stock.yaml`: 국내 주식 시장 규칙 기본값
 
+`configs/base.yaml`의 `universe` 섹션은 기본 필터 정책과 최소 거래대금/거래량 임계값을 관리합니다.
+
+## 백테스트 실행
+
+런타임 오케스트레이션과 CLI 엔트리포인트가 구현되어 있습니다.
+
+```powershell
+python -m stock_trading_bot.app.run_backtest
+```
+
+데이터 디렉토리를 직접 지정하려면 다음처럼 실행합니다.
+
+```powershell
+python -m stock_trading_bot.app.run_backtest --data-dir tests/fixtures/market
+```
+
 ## 현재 상태
 
 현재 구현 범위는 다음까지 반영되어 있습니다.
@@ -106,5 +122,7 @@ docker run --rm stock-trading-bot pytest -q
 - 돌파형 스윙 진입 전략, 종가 확정 엔진, Signal 생성기
 - 보수형 청산 정책
 - SimulatedBroker와 실행 서비스(OrderManager, FillProcessor)
+- Runtime 실행 엔진(SessionClock, Coordinators, ResultCollector)
+- 백테스트 애플리케이션 엔트리포인트(`python -m stock_trading_bot.app.run_backtest`)
 
-아직 남아 있는 주요 구현 범위는 런타임 오케스트레이션, AI 스코어링, 그리고 모의투자/실거래 어댑터 계층입니다.
+아직 남아 있는 주요 구현 범위는 AI 스코어링 고도화와 모의투자/실거래 어댑터 계층입니다.
