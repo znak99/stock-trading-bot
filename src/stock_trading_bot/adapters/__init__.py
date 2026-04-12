@@ -1,5 +1,5 @@
 """Backtest, paper, and live mode adapters."""
 
-from .backtest import HistoricalMarketDataFeed
+from .backtest import HistoricalMarketDataFeed, SimulatedBroker, SimulatedFillStep
 
-__all__ = ["HistoricalMarketDataFeed"]
+__all__ = ["HistoricalMarketDataFeed", "SimulatedBroker", "SimulatedFillStep"]

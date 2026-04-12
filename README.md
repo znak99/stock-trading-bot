@@ -105,5 +105,6 @@ docker run --rm stock-trading-bot pytest -q
 - UniverseSelection 필터 정책과 후보 선정 서비스
 - 돌파형 스윙 진입 전략, 종가 확정 엔진, Signal 생성기
 - 보수형 청산 정책
+- SimulatedBroker와 실행 서비스(OrderManager, FillProcessor)
 
-아직 남아 있는 주요 구현 범위는 런타임 오케스트레이션, 실행 서비스, AI 스코어링, 그리고 모의투자/실거래 어댑터 계층입니다.
+아직 남아 있는 주요 구현 범위는 런타임 오케스트레이션, AI 스코어링, 그리고 모의투자/실거래 어댑터 계층입니다.
