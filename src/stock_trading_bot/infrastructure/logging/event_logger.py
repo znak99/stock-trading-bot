@@ -17,6 +17,7 @@ from stock_trading_bot.core.models import (
     Signal,
 )
 from stock_trading_bot.execution import ProcessedOrderEvent
+from stock_trading_bot.execution.services.gap_filter import GapFilterDecision
 from stock_trading_bot.infrastructure._serialization import append_jsonl
 from stock_trading_bot.infrastructure.notifications import AlertNotification
 from stock_trading_bot.universe.policies import CandidateFilterLogEntry
@@ -188,6 +189,12 @@ class EventLogger:
 
         for alert in alerts:
             self._write_record("safety_alert", alert)
+
+    def log_gap_filter_decisions(self, decisions: Sequence[GapFilterDecision]) -> None:
+        """Record next-open gap-filter evaluations."""
+
+        for decision in decisions:
+            self._write_record("gap_filter_decision", decision)
 
     def _write_record(self, record_type: str, payload: Any) -> None:
         self._sequence += 1

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 
-from stock_trading_bot.core.models import AccountState
+from stock_trading_bot.core.models import AccountState, ScoreResult
 
 
 @dataclass(slots=True, kw_only=True)
@@ -15,9 +15,15 @@ class EqualWeightAllocationPolicy:
     max_position_ratio: Decimal = Decimal("0.20")
     lot_size: Decimal = Decimal("1")
 
-    def target_capital(self, account_state: AccountState) -> Decimal:
+    def target_capital(
+        self,
+        account_state: AccountState,
+        *,
+        score_result: ScoreResult | None = None,
+    ) -> Decimal:
         """Return the target capital budget for a single position."""
 
+        del score_result
         return account_state.total_equity * self.max_position_ratio
 
     def quantity_for_capital(self, unit_price: Decimal, capital_budget: Decimal) -> Decimal:

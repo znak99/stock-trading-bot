@@ -1,5 +1,5 @@
 name: conservative_risk_v1
-allocation_policy: equal_weight
+allocation_policy: weighted_score
 
 risk_checks:
   max_active_positions: 5
@@ -11,6 +11,12 @@ risk_checks:
 reservation:
   use_reserved_cash: true
   use_reserved_sell_quantity: true
+
+weighted_allocation:
+  min_position_ratio: 0.08
+  score_floor: 0.45
+  score_ceiling: 0.90
+  fallback_position_ratio: 0.20
 
 operational_safety:
   enabled: true

@@ -1,6 +1,13 @@
 """Execution, broker, and order state components."""
 
-from .services import FillProcessor, ManagedOrder, OrderManager, ProcessedOrderEvent
+from .services import (
+    FillProcessor,
+    GapFilterDecision,
+    GapFilterPolicy,
+    ManagedOrder,
+    OrderManager,
+    ProcessedOrderEvent,
+)
 from .state_machine import (
     InvalidOrderTransitionError,
     MissingTransitionContextError,
@@ -9,6 +16,8 @@ from .state_machine import (
 
 __all__ = [
     "FillProcessor",
+    "GapFilterDecision",
+    "GapFilterPolicy",
     "InvalidOrderTransitionError",
     "ManagedOrder",
     "MissingTransitionContextError",

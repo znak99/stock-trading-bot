@@ -92,10 +92,14 @@ docker run --rm stock-trading-bot pytest -q
 - `configs/risk/conservative_risk_v1.yaml`: 보수형 리스크 정책
 - `configs/costs/conservative.yaml`: 운영 기본 비용 프로파일
 - `configs/market/kr_stock.yaml`: 국내 주식 시장 규칙 기본값
+- `configs/market/us_stock.yaml`: 미국 주식 확장용 시장 프로파일
+- `configs/market/crypto.yaml`: 암호화폐 확장용 시장 프로파일
 - `configs/experiments/*.yaml`: 파라미터 실험 정의 파일
 
 `configs/base.yaml`의 `universe` 섹션은 기본 필터 정책과 최소 거래대금/거래량 임계값을 관리합니다.
-`configs/strategy/breakout_swing_v1.yaml`의 `ai_scoring` 섹션은 CoreFeatureSet 기반 1차 점수화 모델 설정을 관리합니다.
+`configs/strategy/breakout_swing_v1.yaml`의 `ai_scoring` 섹션은 CoreFeatureSet 기반 점수화와 고도화 모델 보정값을 관리합니다.
+`configs/strategy/breakout_swing_v1.yaml`의 `execution.gap_filter` 섹션은 다음날 시가 갭 필터 규칙을 관리합니다.
+`configs/risk/conservative_risk_v1.yaml`의 `weighted_allocation` 섹션은 점수 가중 투자 비율을 관리합니다.
 `configs/risk/conservative_risk_v1.yaml`의 `operational_safety` 섹션은 일일 손실 제한, 중복 주문 차단, 이상 상태 감지 규칙을 관리합니다.
 `.env.example`의 `BROKER_*` 변수는 KIS Open API 실거래 연동과 주문체결 polling 정규화에 사용합니다.
 
@@ -132,6 +136,7 @@ python -m stock_trading_bot.app.run_parameter_experiments `
 
 실험 실행 후에는 각 run별 백테스트 결과와 로그가 별도 디렉토리에 저장되고,
 실험 루트에는 `comparison.json`, `comparison.csv`가 생성됩니다.
+고도화 스택 검증은 `configs/experiments/advanced_stack_validation.yaml`로 실행할 수 있습니다.
 
 ## 현재 상태
 
@@ -146,12 +151,15 @@ python -m stock_trading_bot.app.run_parameter_experiments `
 - UniverseSelection 필터 정책과 후보 선정 서비스
 - 돌파형 스윙 진입 전략, 종가 확정 엔진, Signal 생성기
 - 보수형 청산 정책
-- CoreFeatureSet 기반 AI Scoring 1차 구현과 후보 순위 정렬
+- CoreFeatureSet 기반 AI Scoring과 `AdvancedRankingModel`
+- 점수 기반 `WeightedScoreAllocationPolicy`
+- 다음날 시가 진입 전 `GapFilterPolicy`
 - SimulatedBroker와 실행 서비스(OrderManager, FillProcessor)
 - Runtime 실행 엔진(SessionClock, Coordinators, ResultCollector)
 - 백테스트 애플리케이션 엔트리포인트(`python -m stock_trading_bot.app.run_backtest`)
 - End-to-End 백테스트 흐름(필터 -> 전략 -> 주문 -> 체결 -> 청산 -> 결과 요약 출력)
 - 설정 파일 기반 파라미터 실험 반복 실행 및 결과 비교
+- 국내 주식 외 미국 주식/암호화폐 확장을 위한 시장 프로파일 준비
 - KIS Open API 기반 `LiveBroker` REST 인증, 주문/취소, 체결조회 polling 정규화
 - 운영 안전장치(일일 손실 제한, 중복 주문 차단, 이상 상태 감지, 알림 dispatch)
 

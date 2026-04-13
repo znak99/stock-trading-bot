@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from stock_trading_bot.execution import GapFilterPolicy
 from stock_trading_bot.infrastructure.logging import EventLogger
 from stock_trading_bot.infrastructure.notifications import AlertDispatcher, AlertNotification
 from stock_trading_bot.infrastructure.persistence import TradeRepository
@@ -29,6 +30,7 @@ class ExecutionRuntime:
     trade_repository: TradeRepository | None = None
     operational_safety_guard: OperationalSafetyGuard | None = None
     alert_dispatcher: AlertDispatcher | None = None
+    gap_filter_policy: GapFilterPolicy | None = None
     _bootstrapped: bool = field(default=False, init=False)
 
     def bootstrap(self) -> None:
@@ -191,6 +193,13 @@ class ExecutionRuntime:
             session_phase="NEXT_OPEN_EXECUTION",
             is_final=False,
         )
+        scheduled_orders = self._filter_gap_blocked_order_requests(
+            trading_date,
+            scheduled_orders,
+            open_snapshots,
+        )
+        if not scheduled_orders:
+            return
         prepared_orders = self.portfolio_coordinator.prepare_orders_for_execution(
             scheduled_orders,
             snapshots_by_instrument_id=open_snapshots,
@@ -325,4 +334,40 @@ class ExecutionRuntime:
             trading_date,
             reason="next_open_pre_submission_filter",
         )
+        return tuple(allowed_order_requests)
+
+    def _filter_gap_blocked_order_requests(
+        self,
+        trading_date: date,
+        order_requests: tuple,
+        open_snapshots: dict,
+    ) -> tuple:
+        if self.gap_filter_policy is None:
+            return order_requests
+
+        previous_closes = self.strategy_coordinator.previous_closes_for_date(trading_date)
+        decisions = []
+        allowed_order_requests = []
+        timestamp = self.portfolio_coordinator.current_account_state().timestamp
+        for order_request in order_requests:
+            open_snapshot = open_snapshots.get(order_request.instrument_id)
+            if open_snapshot is None:
+                allowed_order_requests.append(order_request)
+                continue
+            decision = self.gap_filter_policy.evaluate(
+                order_request,
+                open_snapshot=open_snapshot,
+                previous_close=previous_closes.get(order_request.instrument_id),
+            )
+            decisions.append(decision)
+            if decision.allowed:
+                allowed_order_requests.append(order_request)
+                continue
+            self.portfolio_coordinator.release_order_request(
+                order_request.order_request_id,
+                timestamp=timestamp,
+            )
+
+        if decisions and self.event_logger is not None:
+            self.event_logger.log_gap_filter_decisions(decisions)
         return tuple(allowed_order_requests)

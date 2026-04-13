@@ -16,7 +16,12 @@ execution:
   order_type: market
   time_in_force: day
   target_execution_timing: next_open
-  gap_filter_enabled: false
+  gap_filter_enabled: true
+  gap_filter:
+    block_gap_up: true
+    max_gap_up_rate: 0.055
+    block_gap_down: false
+    min_gap_down_rate: -0.06
 
 exit:
   stop_loss_rate: -0.025
@@ -27,8 +32,11 @@ exit:
 ai_scoring:
   enabled: true
   feature_set_name: core_feature_set_v1
-  model_name: basic_ranking_model
-  model_version: v1
+  model_type: advanced
+  model_name: advanced_ranking_model
+  model_version: v2
+  base_model_name: basic_ranking_model
+  base_model_version: v1
   momentum_windows:
     - 3
     - 5
@@ -57,3 +65,17 @@ ai_scoring:
     breakout_position: 0.25
     trend_volatility: 0.20
     market_context: 0.10
+  advanced:
+    preferred_gap_rate: 0.02
+    max_gap_penalty_rate: 0.08
+    overbought_rsi_floor: 78
+    overbought_rsi_ceiling: 95
+    soft_intraday_range_ratio: 0.05
+    hard_intraday_range_ratio: 0.18
+    breakout_buffer_cap: 0.03
+    volume_bonus_cap: 0.75
+    breakout_bonus_weight: 0.06
+    volume_bonus_weight: 0.05
+    gap_penalty_weight: 0.12
+    rsi_penalty_weight: 0.08
+    volatility_penalty_weight: 0.10

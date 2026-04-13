@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 
 from stock_trading_bot.core.models import AccountState, OrderRequest, RiskCheckResult
-from stock_trading_bot.portfolio.policies import EqualWeightAllocationPolicy
+from stock_trading_bot.portfolio.policies import AllocationPolicy, EqualWeightAllocationPolicy
 from stock_trading_bot.portfolio.stores import PositionBook
 
 
@@ -22,7 +22,7 @@ class PreTradeRiskChecker:
     min_available_cash_after_order: Decimal = Decimal("0")
     buy_commission_rate: Decimal = Decimal("0.00025")
     buy_slippage_rate: Decimal = Decimal("0.0030")
-    allocation_policy: EqualWeightAllocationPolicy = field(
+    allocation_policy: AllocationPolicy = field(
         default_factory=lambda: EqualWeightAllocationPolicy(max_position_ratio=Decimal("0.20"))
     )
 
@@ -44,8 +44,15 @@ class PreTradeRiskChecker:
         position_refs = position_book.position_refs(order_request.instrument_id)
 
         if order_request.side == "buy":
-            allowed_capital, allowed_quantity = self._evaluate_buy_capacity(account_state, order_request)
-            if position is not None and position.position_status == "open" and self.block_duplicate_long_entry:
+            allowed_capital, allowed_quantity = self._evaluate_buy_capacity(
+                account_state,
+                order_request,
+            )
+            if (
+                position is not None
+                and position.position_status == "open"
+                and self.block_duplicate_long_entry
+            ):
                 failure_reasons.append("duplicate_long_entry_blocked")
 
             if (position is None or position.position_status != "open") and (
@@ -125,7 +132,10 @@ class PreTradeRiskChecker:
         if position is None or position.position_status != "open":
             return Decimal("0"), Decimal("0")
 
-        reserved_quantity = account_state.reserved_sell_quantity.get(order_request.instrument_id, Decimal("0"))
+        reserved_quantity = account_state.reserved_sell_quantity.get(
+            order_request.instrument_id,
+            Decimal("0"),
+        )
         tradable_quantity = max(Decimal("0"), position.quantity - reserved_quantity)
         allowed_capital = max(Decimal("0"), tradable_quantity * order_request.price)
         return allowed_capital, tradable_quantity

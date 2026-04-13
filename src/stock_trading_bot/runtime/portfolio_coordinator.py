@@ -20,7 +20,7 @@ from stock_trading_bot.core.models import (
 )
 from stock_trading_bot.portfolio import (
     AccountStateStore,
-    EqualWeightAllocationPolicy,
+    AllocationPolicy,
     PortfolioUpdater,
     PositionBook,
     PreTradeRiskChecker,
@@ -37,7 +37,7 @@ class PortfolioCoordinator:
     account_state_store: AccountStateStore
     risk_checker: PreTradeRiskChecker
     portfolio_updater: PortfolioUpdater
-    allocation_policy: EqualWeightAllocationPolicy
+    allocation_policy: AllocationPolicy
     broker_mode: str
     order_type: str = "market"
     time_in_force: str = "day"
@@ -71,7 +71,11 @@ class PortfolioCoordinator:
         side = "buy" if signal.signal_type == "buy" else "sell"
         if self.block_duplicate_active_orders and self.has_active_order(signal.instrument_id, side):
             return None
-        requested_quantity = self._resolve_requested_quantity(signal, snapshot)
+        requested_quantity = self._resolve_requested_quantity(
+            signal,
+            snapshot,
+            score_result=score_result,
+        )
         if requested_quantity <= Decimal("0"):
             return None
 
@@ -325,10 +329,13 @@ class PortfolioCoordinator:
         self,
         signal: Signal,
         snapshot: MarketDataSnapshot,
+        *,
+        score_result: ScoreResult | None = None,
     ) -> Decimal:
         if signal.signal_type == "buy":
             capital_budget = self.allocation_policy.target_capital(
-                self.account_state_store.get_state()
+                self.account_state_store.get_state(),
+                score_result=score_result,
             )
             return self.allocation_policy.quantity_for_capital(snapshot.close_price, capital_budget)
 

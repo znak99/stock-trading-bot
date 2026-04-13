@@ -1,5 +1,6 @@
 """AI scoring and feature components."""
 
+from .advanced_ranking_model import AdvancedRankingModel
 from .basic_ranking_model import BasicRankingModel
 from .candidate_ranker import CandidateRanker
 from .core_feature_set_builder import (
@@ -14,6 +15,7 @@ from .core_feature_set_builder import (
 from .feature_builder import FeatureBuilder, HistoricalBar
 
 __all__ = [
+    "AdvancedRankingModel",
     "BasicRankingModel",
     "BreakoutPositionFeatures",
     "CandidateRanker",

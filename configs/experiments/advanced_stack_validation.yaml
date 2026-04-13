@@ -1,0 +1,38 @@
+name: advanced_stack_validation
+include_baseline: true
+
+base_overrides:
+  base:
+    profiles:
+      strategy: breakout_swing_v1
+      risk: conservative_risk_v1
+  strategy:
+    execution:
+      gap_filter_enabled: false
+    ai_scoring:
+      model_type: basic
+  risk:
+    allocation_policy: equal_weight
+
+comparison:
+  sort_by: total_pnl
+  metrics:
+    - total_pnl
+    - return_rate
+    - realized_pnl
+    - order_request_count
+    - fill_event_count
+
+parameters:
+  - path: strategy.execution.gap_filter_enabled
+    values:
+      - false
+      - true
+  - path: risk.allocation_policy
+    values:
+      - equal_weight
+      - weighted_score
+  - path: strategy.ai_scoring.model_type
+    values:
+      - basic
+      - advanced

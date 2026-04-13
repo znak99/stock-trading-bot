@@ -132,6 +132,23 @@ class HistoricalMarketDataFeed:
         }
         return tuple(sorted(unique_dates))
 
+    def previous_close(
+        self,
+        instrument: Instrument,
+        *,
+        trading_date: date,
+    ) -> Decimal | None:
+        """Return the prior session close before the provided trading date."""
+
+        bars = self.load_ohlcv(instrument)
+        for index, bar in enumerate(bars):
+            if bar.timestamp.date() != trading_date:
+                continue
+            if index == 0:
+                return None
+            return bars[index - 1].close_price
+        return None
+
     def _resolve_csv_path(self, instrument: Instrument) -> Path:
         candidates = (
             self._data_directory / f"{instrument.symbol}.csv",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 from stock_trading_bot.adapters import HistoricalMarketDataFeed
 from stock_trading_bot.ai import CandidateRanker
@@ -54,6 +55,21 @@ class StrategyCoordinator:
                     snapshots_by_instrument_id[instrument.instrument_id] = snapshot
                     break
         return snapshots_by_instrument_id
+
+    def previous_closes_for_date(self, trading_date: date) -> dict[str, Decimal]:
+        """Return prior-session closes keyed by instrument_id for one trading date."""
+
+        return {
+            instrument.instrument_id: previous_close
+            for instrument in self.instruments
+            if (
+                previous_close := self.market_data_feed.previous_close(
+                    instrument,
+                    trading_date=trading_date,
+                )
+            )
+            is not None
+        }
 
     def scan_intraday_candidates(self, trading_date: date) -> tuple[CandidateSelectionResult, ...]:
         """Run the intraday universe scan for a trading date."""

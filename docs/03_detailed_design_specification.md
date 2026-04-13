@@ -290,6 +290,7 @@ AI 점수와 후보 순위를 표준화한 객체
 - 장중 후보 감시 파이프라인 실행
 - 종가 확정 파이프라인 실행
 - AI 점수화 파이프라인 연결
+- 다음날 시가 갭 필터 판단에 필요한 전일 종가 조회 지원
 
 ### 주요 메서드 예시
 - `scan_intraday_candidates()`
@@ -326,6 +327,7 @@ AI 점수와 후보 순위를 표준화한 객체
 - 체결 이벤트 기준 장부 갱신
 - 예약 자금/예약 수량 관리
 - 활성 주문 추적으로 중복 주문 차단
+- 점수 기반 가중 투자 정책을 사용한 주문 수량 계산
 
 ### 주요 메서드 예시
 - `build_order_request(signal, score_result=None)`
@@ -721,6 +723,7 @@ sell_slippage_rate   = 0.0007
 
 ### `NEXT_OPEN_EXECUTION`
 - 예약 주문 조회
+- 갭 필터 평가
 - 다음날 시가 주문 제출
 - 주문 상태 머신과 이벤트 처리 시작
 
@@ -799,9 +802,12 @@ app/run_backtest.py
 
 ### 9.2 2차 구현 파일
 - `ai/*`
+- `ai/advanced_ranking_model.py`
 - `adapters/paper/*`
 - `adapters/live/*`
 - `notifications/*`
+- `execution/services/gap_filter.py`
+- `portfolio/policies/weighted_score_allocation_policy.py`
 - 슬리피지 고도화 모듈
 - 리포트/성과 분석 모듈
 

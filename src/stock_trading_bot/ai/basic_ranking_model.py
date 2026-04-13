@@ -58,24 +58,9 @@ class BasicRankingModel:
     ) -> ScoreResult:
         """Return one explainable score result for the candidate."""
 
-        recent_bars = tuple(self.recent_bars_provider(candidate.instrument_id, snapshot))
-        feature_set = self.core_feature_set_builder.build(candidate, snapshot, recent_bars)
-        group_scores = {
-            "price_momentum": self._price_momentum_score(feature_set),
-            "volume_liquidity": self._volume_liquidity_score(feature_set),
-            "breakout_position": self._breakout_position_score(feature_set),
-            "trend_volatility": self._trend_volatility_score(feature_set),
-            "market_context": self._market_context_score(feature_set),
-        }
-        total_weight = sum(self.group_weights.values(), Decimal("0"))
-        weighted_score = sum(
-            (
-                group_scores[group_name] * self.group_weights[group_name]
-                for group_name in group_scores
-            ),
-            Decimal("0"),
-        ) / total_weight
-        normalized_score = FeatureScoreMath.clamp(weighted_score, Decimal("0"), Decimal("1"))
+        feature_set = self.build_feature_set(candidate, snapshot)
+        group_scores = self.calculate_group_scores(feature_set)
+        normalized_score = self.combine_group_scores(group_scores)
 
         return ScoreResult(
             score_id=f"score:{candidate.candidate_id}:{self.name}",
@@ -89,6 +74,40 @@ class BasicRankingModel:
             candidate_ref=candidate.candidate_id,
             score_reason_summary=self._score_reason_summary(group_scores),
         )
+
+    def build_feature_set(
+        self,
+        candidate: CandidateSelectionResult,
+        snapshot: MarketDataSnapshot,
+    ) -> CoreFeatureSet:
+        """Build the core feature set for one candidate."""
+
+        recent_bars = tuple(self.recent_bars_provider(candidate.instrument_id, snapshot))
+        return self.core_feature_set_builder.build(candidate, snapshot, recent_bars)
+
+    def calculate_group_scores(self, feature_set: CoreFeatureSet) -> dict[str, Decimal]:
+        """Return the normalized group scores for one feature set."""
+
+        return {
+            "price_momentum": self._price_momentum_score(feature_set),
+            "volume_liquidity": self._volume_liquidity_score(feature_set),
+            "breakout_position": self._breakout_position_score(feature_set),
+            "trend_volatility": self._trend_volatility_score(feature_set),
+            "market_context": self._market_context_score(feature_set),
+        }
+
+    def combine_group_scores(self, group_scores: dict[str, Decimal]) -> Decimal:
+        """Combine per-group scores into one normalized score."""
+
+        total_weight = sum(self.group_weights.values(), Decimal("0"))
+        weighted_score = sum(
+            (
+                group_scores[group_name] * self.group_weights[group_name]
+                for group_name in group_scores
+            ),
+            Decimal("0"),
+        ) / total_weight
+        return FeatureScoreMath.clamp(weighted_score, Decimal("0"), Decimal("1"))
 
     def _price_momentum_score(self, feature_set: CoreFeatureSet) -> Decimal:
         price_momentum = feature_set.price_momentum

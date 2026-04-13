@@ -1,0 +1,31 @@
+name: crypto
+market_type: digital_asset
+currency: USDT
+timezone: UTC
+
+supported_exchanges:
+  - BINANCE
+  - UPBIT
+
+trading_calendar:
+  regular_open: "00:00"
+  regular_close: "23:59"
+  session_phases:
+    - PRE_MARKET
+    - INTRADAY_MONITOR
+    - MARKET_CLOSE_PROCESS
+    - NEXT_OPEN_EXECUTION
+
+order_rules:
+  lot_size: 0.0001
+  tick_size_policy: crypto_decimal
+  supported_order_types:
+    - market
+    - limit
+  price_limit_guard_enabled: false
+
+instrument_defaults:
+  asset_type: crypto
+  sector: digital_asset
+  is_etf: false
+  is_active: true

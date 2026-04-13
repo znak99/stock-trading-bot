@@ -31,9 +31,10 @@ def test_backtest_runtime_uses_ai_scoring_and_sorts_candidates(tmp_path: Path) -
     assert len(result.scores) == 2
     assert [score.rank for score in result.scores] == [1, 2]
     assert [score.instrument_id for score in result.scores] == ["A001", "A002"]
-    assert all(score.model_name == "basic_ranking_model" for score in result.scores)
+    assert all(score.model_name == "advanced_ranking_model" for score in result.scores)
     assert result.scores[0].score_value > result.scores[1].score_value
     assert "price_momentum=" in result.scores[0].score_reason_summary
+    assert "gap_penalty=" in result.scores[0].score_reason_summary
 
 
 def _write_breakout_fixture(

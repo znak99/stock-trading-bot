@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from stock_trading_bot.adapters import HistoricalMarketDataFeed, SimulatedBroker
-from stock_trading_bot.ai import BasicRankingModel, CoreFeatureSetBuilder
+from stock_trading_bot.ai import AdvancedRankingModel, BasicRankingModel, CoreFeatureSetBuilder
 from stock_trading_bot.core.models import Instrument
-from stock_trading_bot.execution import FillProcessor, OrderManager
+from stock_trading_bot.execution import FillProcessor, GapFilterPolicy, OrderManager
 from stock_trading_bot.infrastructure.config import ConfigManager
 from stock_trading_bot.infrastructure.logging import EventLogger
 from stock_trading_bot.infrastructure.notifications import (
@@ -29,6 +29,7 @@ from stock_trading_bot.portfolio import (
     PortfolioUpdater,
     PositionBook,
     PreTradeRiskChecker,
+    WeightedScoreAllocationPolicy,
 )
 from stock_trading_bot.portfolio.services.portfolio_updater import build_initial_account_state
 from stock_trading_bot.runtime import (
@@ -115,9 +116,9 @@ def build_backtest_runtime(
         buy_slippage_rate=_to_decimal(costs_config["buy_slippage_rate"]),
         sell_slippage_rate=_to_decimal(costs_config["sell_slippage_rate"]),
     )
-    allocation_policy = EqualWeightAllocationPolicy(
-        max_position_ratio=_to_decimal(risk_config["risk_checks"]["max_position_ratio"]),
-        lot_size=_to_decimal(market_config["order_rules"]["lot_size"]),
+    allocation_policy = _build_allocation_policy(
+        risk_config=risk_config,
+        market_config=market_config,
     )
     risk_checker = PreTradeRiskChecker(
         risk_policy_name=risk_config["name"],
@@ -193,48 +194,9 @@ def build_backtest_runtime(
         use_final_snapshot_only=bool(strategy_config["entry"]["use_final_snapshot_only"]),
     )
     ai_scoring_config = strategy_config["ai_scoring"]
-    ranking_model = (
-        BasicRankingModel(
-            recent_bars_provider=recent_bars_provider,
-            core_feature_set_builder=CoreFeatureSetBuilder(
-                feature_set_name=str(ai_scoring_config["feature_set_name"]),
-                momentum_windows=tuple(
-                    int(window) for window in ai_scoring_config["momentum_windows"]
-                ),
-                volume_average_window=int(ai_scoring_config["volume_average_window"]),
-                trading_value_average_window=int(
-                    ai_scoring_config["trading_value_average_window"]
-                ),
-                breakout_lookback_days=int(ai_scoring_config["breakout_lookback_days"]),
-                short_moving_average_name=str(ai_scoring_config["short_moving_average_name"]),
-                long_moving_average_name=str(ai_scoring_config["long_moving_average_name"]),
-                rsi_indicator_name=str(ai_scoring_config["rsi_indicator_name"]),
-            ),
-            group_weights={
-                group_name: _to_decimal(weight)
-                for group_name, weight in ai_scoring_config["group_weights"].items()
-            },
-            price_return_cap=_to_decimal(ai_scoring_config["price_return_cap"]),
-            gap_rate_cap=_to_decimal(ai_scoring_config["gap_rate_cap"]),
-            volume_ratio_target=_to_decimal(ai_scoring_config["volume_ratio_target"]),
-            trading_value_ratio_target=_to_decimal(
-                ai_scoring_config["trading_value_ratio_target"]
-            ),
-            breakout_distance_cap=_to_decimal(ai_scoring_config["breakout_distance_cap"]),
-            close_strength_min=_to_decimal(ai_scoring_config["close_strength_min"]),
-            close_strength_target=_to_decimal(ai_scoring_config["close_strength_target"]),
-            trend_gap_cap=_to_decimal(ai_scoring_config["trend_gap_cap"]),
-            max_intraday_range_ratio=_to_decimal(
-                ai_scoring_config["max_intraday_range_ratio"]
-            ),
-            rsi_neutral_floor=_to_decimal(ai_scoring_config["rsi_neutral_floor"]),
-            rsi_neutral_ceiling=_to_decimal(ai_scoring_config["rsi_neutral_ceiling"]),
-            trend_alignment_cap=_to_decimal(ai_scoring_config["trend_alignment_cap"]),
-            name=str(ai_scoring_config["model_name"]),
-            version=str(ai_scoring_config["model_version"]),
-        )
-        if bool(ai_scoring_config["enabled"])
-        else None
+    ranking_model = _build_ranking_model(
+        ai_scoring_config=ai_scoring_config,
+        recent_bars_provider=recent_bars_provider,
     )
 
     strategy_coordinator = StrategyCoordinator(
@@ -334,6 +296,7 @@ def build_backtest_runtime(
         trade_repository=trade_repository,
         operational_safety_guard=operational_safety_guard,
         alert_dispatcher=alert_dispatcher,
+        gap_filter_policy=_build_gap_filter_policy(strategy_config),
     )
 
 
@@ -427,16 +390,17 @@ def _discover_instruments(
         raise FileNotFoundError(f"No CSV files found in {data_directory}")
 
     market_name = str(market_config.get("name", "kr_stock"))
+    instrument_defaults = dict(market_config.get("instrument_defaults", {}))
     return tuple(
         Instrument(
             instrument_id=csv_path.stem,
             symbol=csv_path.stem,
             name=csv_path.stem,
             market=market_name,
-            asset_type="equity",
-            sector="unknown",
-            is_etf=False,
-            is_active=True,
+            asset_type=str(instrument_defaults.get("asset_type", "equity")),
+            sector=str(instrument_defaults.get("sector", "unknown")),
+            is_etf=bool(instrument_defaults.get("is_etf", False)),
+            is_active=bool(instrument_defaults.get("is_active", True)),
         )
         for csv_path in csv_paths
     )
@@ -444,6 +408,110 @@ def _discover_instruments(
 
 def _to_decimal(value: Any) -> Decimal:
     return Decimal(str(value))
+
+
+def _build_allocation_policy(
+    *,
+    risk_config: Mapping[str, Any],
+    market_config: Mapping[str, Any],
+) -> EqualWeightAllocationPolicy | WeightedScoreAllocationPolicy:
+    lot_size = _to_decimal(market_config["order_rules"]["lot_size"])
+    allocation_policy_name = str(risk_config.get("allocation_policy", "equal_weight"))
+    max_position_ratio = _to_decimal(risk_config["risk_checks"]["max_position_ratio"])
+
+    if allocation_policy_name == "weighted_score":
+        weighted_config = dict(risk_config.get("weighted_allocation", {}))
+        return WeightedScoreAllocationPolicy(
+            min_position_ratio=_to_decimal(weighted_config["min_position_ratio"]),
+            max_position_ratio=max_position_ratio,
+            score_floor=_to_decimal(weighted_config["score_floor"]),
+            score_ceiling=_to_decimal(weighted_config["score_ceiling"]),
+            fallback_position_ratio=_to_decimal(
+                weighted_config.get("fallback_position_ratio", max_position_ratio)
+            ),
+            lot_size=lot_size,
+        )
+
+    return EqualWeightAllocationPolicy(
+        max_position_ratio=max_position_ratio,
+        lot_size=lot_size,
+    )
+
+
+def _build_ranking_model(
+    *,
+    ai_scoring_config: Mapping[str, Any],
+    recent_bars_provider,
+):
+    if not bool(ai_scoring_config["enabled"]):
+        return None
+
+    base_model = BasicRankingModel(
+        recent_bars_provider=recent_bars_provider,
+        core_feature_set_builder=CoreFeatureSetBuilder(
+            feature_set_name=str(ai_scoring_config["feature_set_name"]),
+            momentum_windows=tuple(int(window) for window in ai_scoring_config["momentum_windows"]),
+            volume_average_window=int(ai_scoring_config["volume_average_window"]),
+            trading_value_average_window=int(ai_scoring_config["trading_value_average_window"]),
+            breakout_lookback_days=int(ai_scoring_config["breakout_lookback_days"]),
+            short_moving_average_name=str(ai_scoring_config["short_moving_average_name"]),
+            long_moving_average_name=str(ai_scoring_config["long_moving_average_name"]),
+            rsi_indicator_name=str(ai_scoring_config["rsi_indicator_name"]),
+        ),
+        group_weights={
+            group_name: _to_decimal(weight)
+            for group_name, weight in ai_scoring_config["group_weights"].items()
+        },
+        price_return_cap=_to_decimal(ai_scoring_config["price_return_cap"]),
+        gap_rate_cap=_to_decimal(ai_scoring_config["gap_rate_cap"]),
+        volume_ratio_target=_to_decimal(ai_scoring_config["volume_ratio_target"]),
+        trading_value_ratio_target=_to_decimal(ai_scoring_config["trading_value_ratio_target"]),
+        breakout_distance_cap=_to_decimal(ai_scoring_config["breakout_distance_cap"]),
+        close_strength_min=_to_decimal(ai_scoring_config["close_strength_min"]),
+        close_strength_target=_to_decimal(ai_scoring_config["close_strength_target"]),
+        trend_gap_cap=_to_decimal(ai_scoring_config["trend_gap_cap"]),
+        max_intraday_range_ratio=_to_decimal(ai_scoring_config["max_intraday_range_ratio"]),
+        rsi_neutral_floor=_to_decimal(ai_scoring_config["rsi_neutral_floor"]),
+        rsi_neutral_ceiling=_to_decimal(ai_scoring_config["rsi_neutral_ceiling"]),
+        trend_alignment_cap=_to_decimal(ai_scoring_config["trend_alignment_cap"]),
+        name=str(ai_scoring_config.get("base_model_name", "basic_ranking_model")),
+        version=str(ai_scoring_config.get("base_model_version", "v1")),
+    )
+
+    model_type = str(ai_scoring_config.get("model_type", "basic"))
+    if model_type == "advanced":
+        advanced_config = dict(ai_scoring_config.get("advanced", {}))
+        return AdvancedRankingModel(
+            base_model=base_model,
+            preferred_gap_rate=_to_decimal(advanced_config["preferred_gap_rate"]),
+            max_gap_penalty_rate=_to_decimal(advanced_config["max_gap_penalty_rate"]),
+            overbought_rsi_floor=_to_decimal(advanced_config["overbought_rsi_floor"]),
+            overbought_rsi_ceiling=_to_decimal(advanced_config["overbought_rsi_ceiling"]),
+            soft_intraday_range_ratio=_to_decimal(advanced_config["soft_intraday_range_ratio"]),
+            hard_intraday_range_ratio=_to_decimal(advanced_config["hard_intraday_range_ratio"]),
+            breakout_buffer_cap=_to_decimal(advanced_config["breakout_buffer_cap"]),
+            volume_bonus_cap=_to_decimal(advanced_config["volume_bonus_cap"]),
+            breakout_bonus_weight=_to_decimal(advanced_config["breakout_bonus_weight"]),
+            volume_bonus_weight=_to_decimal(advanced_config["volume_bonus_weight"]),
+            gap_penalty_weight=_to_decimal(advanced_config["gap_penalty_weight"]),
+            rsi_penalty_weight=_to_decimal(advanced_config["rsi_penalty_weight"]),
+            volatility_penalty_weight=_to_decimal(advanced_config["volatility_penalty_weight"]),
+            name=str(ai_scoring_config["model_name"]),
+            version=str(ai_scoring_config["model_version"]),
+        )
+
+    return base_model
+
+
+def _build_gap_filter_policy(strategy_config: Mapping[str, Any]) -> GapFilterPolicy:
+    gap_filter_config = dict(strategy_config["execution"].get("gap_filter", {}))
+    return GapFilterPolicy(
+        enabled=bool(strategy_config["execution"].get("gap_filter_enabled", False)),
+        block_gap_up=bool(gap_filter_config.get("block_gap_up", True)),
+        max_gap_up_rate=_to_decimal(gap_filter_config.get("max_gap_up_rate", "0.05")),
+        block_gap_down=bool(gap_filter_config.get("block_gap_down", False)),
+        min_gap_down_rate=_to_decimal(gap_filter_config.get("min_gap_down_rate", "-0.06")),
+    )
 
 
 def _build_alert_dispatcher(alert_config: Mapping[str, Any]) -> AlertDispatcher:

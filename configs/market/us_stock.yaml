@@ -1,16 +1,16 @@
-name: kr_stock
-market_type: domestic_equity
-currency: KRW
-timezone: Asia/Seoul
+name: us_stock
+market_type: global_equity
+currency: USD
+timezone: America/New_York
 
 supported_exchanges:
-  - KOSPI
-  - KOSDAQ
-  - ETF
+  - NASDAQ
+  - NYSE
+  - AMEX
 
 trading_calendar:
-  regular_open: "09:00"
-  regular_close: "15:30"
+  regular_open: "09:30"
+  regular_close: "16:00"
   session_phases:
     - PRE_MARKET
     - INTRADAY_MONITOR
@@ -19,11 +19,11 @@ trading_calendar:
 
 order_rules:
   lot_size: 1
-  tick_size_policy: krx_equity
+  tick_size_policy: us_equity
   supported_order_types:
     - market
     - limit
-  price_limit_guard_enabled: true
+  price_limit_guard_enabled: false
 
 instrument_defaults:
   asset_type: equity

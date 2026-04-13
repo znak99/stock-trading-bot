@@ -189,6 +189,7 @@ Application
 - `CoreFeatureSetBuilder`
 - `RankingModel`
 - `BasicRankingModel`
+- `AdvancedRankingModel`
 - `ScoreCalibrator`
 - `CandidateRanker`
 
@@ -238,6 +239,7 @@ Application
 - `AccountStateStore`
 - `AllocationPolicy`
 - `EqualWeightAllocationPolicy`
+- `WeightedScoreAllocationPolicy`
 - `RiskPolicy`
 - `PreTradeRiskChecker`
 - `PortfolioUpdater`
@@ -586,10 +588,13 @@ configs/
 - `modes/live.yaml`
 - `strategy/breakout_swing_v1.yaml`
 - `experiments/breakout_swing_entry_sensitivity.yaml`
+- `experiments/advanced_stack_validation.yaml`
 - `risk/conservative_risk_v1.yaml`
 - `costs/conservative.yaml`
 - `costs/balanced.yaml`
 - `market/kr_stock.yaml`
+- `market/us_stock.yaml`
+- `market/crypto.yaml`
 
 ### 12.3 설계 원칙
 - 운영 기본값과 비교 테스트값을 분리한다.
