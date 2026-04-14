@@ -10,10 +10,9 @@ backtest:
   benchmark_symbol: KOSDAQ
   historical_data_provider: historical_market_data_feed
   broker_adapter: simulated_broker
-  start_date: "2024-01-01"
-  end_date: "2024-12-31"
+  start_date: "2026-01-01"
+  end_date: "2026-01-20"
   preload_calendar: true
   fill_orders_on_next_open: true
   persist_results: true
   result_path: data/results/backtest
-
